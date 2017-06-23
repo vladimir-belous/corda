@@ -48,6 +48,50 @@ interface ServicesForResolution : StateLoader {
     val cordappProvider: CordappProvider
 }
 
+interface TransactionRecorder {
+    /**
+     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
+     * further processing if [notifyVault] is true. This is expected to be run within a database transaction.
+     *
+     * @param txs The transactions to record.
+     * @param notifyVault indicate if the vault should be notified for the update.
+     */
+    fun recordTransactions(notifyVault: Boolean, txs: Iterable<SignedTransaction>)
+
+    /**
+     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
+     * further processing if [notifyVault] is true. This is expected to be run within a database transaction.
+     */
+    fun recordTransactions(notifyVault: Boolean, first: SignedTransaction, vararg remaining: SignedTransaction) {
+        recordTransactions(notifyVault, listOf(first, *remaining))
+    }
+
+    /**
+     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
+     * further processing. This is expected to be run within a database transaction.
+     */
+    fun recordTransactions(first: SignedTransaction, vararg remaining: SignedTransaction) {
+        recordTransactions(true, first, *remaining)
+    }
+
+    /**
+     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
+     * further processing. This is expected to be run within a database transaction.
+     */
+    fun recordTransactions(txs: Iterable<SignedTransaction>) {
+        recordTransactions(true, txs)
+    }
+}
+
+interface CordappServices {
+    /**
+     * Return the singleton instance of the given Corda service type. This is a class that is annotated with
+     * [CordaService] and will have automatically been registered by the node.
+     * @throws IllegalArgumentException If [type] is not annotated with [CordaService] or if the instance is not found.
+     */
+    fun <T : SerializeAsToken> cordaService(type: Class<T>): T
+}
+
 /**
  * A service hub is the starting point for most operations you can do inside the node. You are provided with one
  * when a class annotated with [CordaService] is constructed, and you have access to one inside flows. Most RPCs
@@ -59,7 +103,7 @@ interface ServicesForResolution : StateLoader {
  *
  * In unit test environments, some of those services may be missing or mocked out.
  */
-interface ServiceHub : ServicesForResolution {
+interface ServiceHub : ServicesForResolution, TransactionRecorder, CordappServices {
     // NOTE: Any services exposed to flows (public view) need to implement [SerializeAsToken] or similar to avoid
     // their internal state from being serialized in checkpoints.
 
@@ -115,46 +159,6 @@ interface ServiceHub : ServicesForResolution {
 
     /** The [NodeInfo] object corresponding to our own entry in the network map. */
     val myInfo: NodeInfo
-
-    /**
-     * Return the singleton instance of the given Corda service type. This is a class that is annotated with
-     * [CordaService] and will have automatically been registered by the node.
-     * @throws IllegalArgumentException If [type] is not annotated with [CordaService] or if the instance is not found.
-     */
-    fun <T : SerializeAsToken> cordaService(type: Class<T>): T
-
-    /**
-     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
-     * further processing if [notifyVault] is true. This is expected to be run within a database transaction.
-     *
-     * @param txs The transactions to record.
-     * @param notifyVault indicate if the vault should be notified for the update.
-     */
-    fun recordTransactions(notifyVault: Boolean, txs: Iterable<SignedTransaction>)
-
-    /**
-     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
-     * further processing if [notifyVault] is true. This is expected to be run within a database transaction.
-     */
-    fun recordTransactions(notifyVault: Boolean, first: SignedTransaction, vararg remaining: SignedTransaction) {
-        recordTransactions(notifyVault, listOf(first, *remaining))
-    }
-
-    /**
-     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
-     * further processing. This is expected to be run within a database transaction.
-     */
-    fun recordTransactions(first: SignedTransaction, vararg remaining: SignedTransaction) {
-        recordTransactions(true, first, *remaining)
-    }
-
-    /**
-     * Stores the given [SignedTransaction]s in the local transaction storage and then sends them to the vault for
-     * further processing. This is expected to be run within a database transaction.
-     */
-    fun recordTransactions(txs: Iterable<SignedTransaction>) {
-        recordTransactions(true, txs)
-    }
 
     /**
      * Converts the given [StateRef] into a [StateAndRef] object.
@@ -265,12 +269,6 @@ interface ServiceHub : ServicesForResolution {
      */
     fun addSignature(signedTransaction: SignedTransaction): SignedTransaction = addSignature(signedTransaction, legalIdentityKey)
 
-    // Helper method to create a signature for a FilteredTransaction.
-    private fun createSignature(filteredTransaction: FilteredTransaction, publicKey: PublicKey, signatureMetadata: SignatureMetadata): TransactionSignature {
-        val signableData = SignableData(filteredTransaction.id, signatureMetadata)
-        return keyManagementService.sign(signableData, publicKey)
-    }
-
     /**
      * Helper method to create a signature for a FilteredTransaction. Additional [SignatureMetadata], including the
      * platform version used during signing and the cryptographic signature scheme use, is added to the signature.
@@ -280,8 +278,7 @@ interface ServiceHub : ServicesForResolution {
      * for signing.
      * @return The [TransactionSignature] generated by signing with the internally held [java.security.PrivateKey].
      */
-    fun createSignature(filteredTransaction: FilteredTransaction, publicKey: PublicKey) =
-            createSignature(filteredTransaction, publicKey, SignatureMetadata(myInfo.platformVersion, Crypto.findSignatureScheme(publicKey).schemeNumberID))
+    fun createSignature(filteredTransaction: FilteredTransaction, publicKey: PublicKey) = keyManagementService.createSignature(filteredTransaction, publicKey, myInfo)
 
     /**
      * Helper method to create a signature for a FilteredTransaction
@@ -309,3 +306,11 @@ interface ServiceHub : ServicesForResolution {
      */
     fun jdbcSession(): Connection
 }
+
+// Helper method to create a signature for a FilteredTransaction.
+fun KeyManagementService.createSignature(filteredTransaction: FilteredTransaction, publicKey: PublicKey, signatureMetadata: SignatureMetadata): TransactionSignature {
+    return sign(SignableData(filteredTransaction.id, signatureMetadata), publicKey)
+}
+
+fun KeyManagementService.createSignature(filteredTransaction: FilteredTransaction, publicKey: PublicKey, myInfo: NodeInfo) =
+        createSignature(filteredTransaction, publicKey, SignatureMetadata(myInfo.platformVersion, Crypto.findSignatureScheme(publicKey).schemeNumberID))

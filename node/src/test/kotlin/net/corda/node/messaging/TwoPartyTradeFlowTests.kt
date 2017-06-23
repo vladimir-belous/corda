@@ -317,8 +317,8 @@ class TwoPartyTradeFlowTests(val anonymous: Boolean) {
                                 entropyRoot: BigInteger): MockNetwork.MockNode {
                 return object : MockNetwork.MockNode(config, network, networkMapAddr, id, notaryIdentity, entropyRoot) {
                     // That constructs a recording tx storage
-                    override fun makeTransactionStorage(): WritableTransactionStorage {
-                        return RecordingTransactionStorage(database, super.makeTransactionStorage())
+                    override fun makeTransactionStorage(database: CordaPersistence): WritableTransactionStorage {
+                        return RecordingTransactionStorage(database, super.makeTransactionStorage(database))
                     }
                 }
             }
@@ -471,7 +471,7 @@ class TwoPartyTradeFlowTests(val anonymous: Boolean) {
 
             val aliceTxStream = aliceNode.services.validatedTransactions.track().updates
             val aliceTxMappings = with(aliceNode) {
-                database.transaction { services.stateMachineRecordedTransactionMapping.track().updates }
+                database.transaction { stateMachineRecordedTransactionMapping.track().updates }
             }
             val aliceSmId = runBuyerAndSeller(notary, aliceNode, bobNode,
                     "alice's paper".outputStateAndRef()).sellerId

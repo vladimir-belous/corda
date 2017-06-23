@@ -12,6 +12,7 @@ import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.messaging.*
 import net.corda.core.node.NodeInfo
+import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.NetworkMapCache
 import net.corda.core.node.services.Vault
 import net.corda.core.node.services.vault.PageSpecification
@@ -19,7 +20,8 @@ import net.corda.core.node.services.vault.QueryCriteria
 import net.corda.core.node.services.vault.Sort
 import net.corda.core.transactions.SignedTransaction
 import net.corda.node.services.FlowPermissions.Companion.startFlowPermission
-import net.corda.node.services.api.ServiceHubInternal
+import net.corda.node.services.api.FlowStarter
+import net.corda.node.services.api.StateMachineRecordedTransactionMappingStorage
 import net.corda.node.services.messaging.getRpcContext
 import net.corda.node.services.messaging.requirePermission
 import net.corda.node.services.statemachine.FlowStateMachineImpl
@@ -35,9 +37,12 @@ import java.time.Instant
  * thread (i.e. serially). Arguments are serialised and deserialised automatically.
  */
 class CordaRPCOpsImpl(
-        private val services: ServiceHubInternal,
+        private val services: ServiceHub,
+        private val flowStarter: FlowStarter,
         private val smm: StateMachineManager,
-        private val database: CordaPersistence
+        private val database: CordaPersistence,
+        private val rpcFlows: RPCFlows,
+        private val stateMachineRecordedTransactionMapping: StateMachineRecordedTransactionMappingStorage
 ) : CordaRPCOps {
     override fun networkMapSnapshot(): List<NodeInfo> {
         val (snapshot, updates) = networkMapFeed()
@@ -106,7 +111,7 @@ class CordaRPCOpsImpl(
 
     override fun stateMachineRecordedTransactionMappingFeed(): DataFeed<List<StateMachineTransactionMapping>, StateMachineTransactionMapping> {
         return database.transaction {
-            services.stateMachineRecordedTransactionMapping.track()
+            stateMachineRecordedTransactionMapping.track()
         }
     }
 
@@ -150,7 +155,7 @@ class CordaRPCOpsImpl(
         rpcContext.requirePermission(startFlowPermission(logicType))
         val currentUser = FlowInitiator.RPC(rpcContext.currentUser.username)
         // TODO RPC flows should have mapping user -> identity that should be resolved automatically on starting flow.
-        return services.invokeFlowAsync(logicType, currentUser, *args)
+        return flowStarter.invokeFlowAsync(logicType, currentUser, *args)
     }
 
     override fun attachmentExists(id: SecureHash): Boolean {
@@ -210,7 +215,7 @@ class CordaRPCOpsImpl(
         }
     }
 
-    override fun registeredFlows(): List<String> = services.rpcFlows.map { it.name }.sorted()
+    override fun registeredFlows(): List<String> = rpcFlows.rpcFlows.map { it.name }.sorted()
 
     override fun clearNetworkMapCache() {
         database.transaction {

@@ -11,6 +11,7 @@ import net.corda.core.flows.NotaryError
 import net.corda.core.flows.NotaryException
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
+import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.NotaryService
 import net.corda.core.node.services.TimeWindowChecker
 import net.corda.core.node.services.UniquenessProvider
@@ -19,41 +20,56 @@ import net.corda.core.serialization.deserialize
 import net.corda.core.serialization.serialize
 import net.corda.core.transactions.FilteredTransaction
 import net.corda.core.utilities.*
-import net.corda.node.services.api.ServiceHubInternal
 import net.corda.node.services.config.BFTSMaRtConfiguration
+import net.corda.node.internal.NotaryIdentity
 import net.corda.node.utilities.AppendOnlyPersistentMap
+import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.NODE_DATABASE_PREFIX
 import java.security.PublicKey
 import javax.persistence.Entity
 import javax.persistence.Table
 import kotlin.concurrent.thread
 
+class DistributedBFTSMaRtCluster : BFTSMaRt.Cluster {
+    companion object {
+        private val log = loggerFor<DistributedBFTSMaRtCluster>()
+    }
+
+    override fun waitUntilAllReplicasHaveInitialized() {
+        log.warn("A replica may still be initializing, in which case the upcoming consensus change may cause it to spin.")
+    }
+}
+
 /**
  * A non-validating notary service operated by a group of parties that don't necessarily trust each other.
  *
  * A transaction is notarised when the consensus is reached by the cluster on its uniqueness, and time-window validity.
  */
-class BFTNonValidatingNotaryService(override val services: ServiceHubInternal,
-                                    override val notaryIdentityKey: PublicKey,
-                                    private val bftSMaRtConfig: BFTSMaRtConfiguration,
-                                    cluster: BFTSMaRt.Cluster) : NotaryService() {
+class BFTNonValidatingNotaryService(override val services: ServiceHub,
+                                    notaryIdentity: NotaryIdentity,
+                                    configuration: BFTSMaRtConfiguration,
+                                    cluster: BFTSMaRt.Cluster,
+                                    database: CordaPersistence) : NotaryService() {
     companion object {
         val id = constructId(validating = false, bft = true)
         private val log = loggerFor<BFTNonValidatingNotaryService>()
     }
 
+    override val notaryIdentityKey = notaryIdentity.key
     private val client: BFTSMaRt.Client
     private val replicaHolder = SettableFuture.create<Replica>()
+    private val replicaId: Int
 
     init {
-        client = BFTSMaRtConfig(bftSMaRtConfig.clusterAddresses, bftSMaRtConfig.debug, bftSMaRtConfig.exposeRaces).use {
-            val replicaId = bftSMaRtConfig.replicaId
+        replicaId = configuration.replicaId
+        client = BFTSMaRtConfig(configuration.clusterAddresses, configuration.debug, configuration.exposeRaces).use {
+            val replicaId = configuration.replicaId
             val configHandle = it.handle()
             // Replica startup must be in parallel with other replicas, otherwise the constructor may not return:
             thread(name = "BFT SMaRt replica $replicaId init", isDaemon = true) {
                 configHandle.use {
                     val timeWindowChecker = TimeWindowChecker(services.clock)
-                    val replica = Replica(it, replicaId, { createMap() }, services, notaryIdentityKey, timeWindowChecker)
+                    val replica = Replica(it, replicaId, { createMap() }, services, notaryIdentityKey, database, timeWindowChecker)
                     replicaHolder.set(replica)
                     log.info("BFT SMaRt replica $replicaId is running.")
                 }
@@ -63,7 +79,7 @@ class BFTNonValidatingNotaryService(override val services: ServiceHubInternal,
     }
 
     fun waitUntilReplicaHasInitialized() {
-        log.debug { "Waiting for replica ${bftSMaRtConfig.replicaId} to initialize." }
+        log.debug { "Waiting for replica $replicaId to initialize." }
         replicaHolder.getOrThrow() // It's enough to wait for the ServiceReplica constructor to return.
     }
 
@@ -128,9 +144,10 @@ class BFTNonValidatingNotaryService(override val services: ServiceHubInternal,
     private class Replica(config: BFTSMaRtConfig,
                           replicaId: Int,
                           createMap: () -> AppendOnlyPersistentMap<StateRef, UniquenessProvider.ConsumingTx, PersistedCommittedState, PersistentStateRef>,
-                          services: ServiceHubInternal,
+                          services: ServiceHub,
                           notaryIdentityKey: PublicKey,
-                          timeWindowChecker: TimeWindowChecker) : BFTSMaRt.Replica(config, replicaId, createMap, services, notaryIdentityKey, timeWindowChecker) {
+                          database: CordaPersistence,
+                          timeWindowChecker: TimeWindowChecker) : BFTSMaRt.Replica(config, replicaId, createMap, services, notaryIdentityKey, database, timeWindowChecker) {
 
         override fun executeCommand(command: ByteArray): ByteArray {
             val request = command.deserialize<BFTSMaRt.CommitRequest>()

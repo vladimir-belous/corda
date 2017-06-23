@@ -2,12 +2,13 @@ package net.corda.node.services.events
 
 import net.corda.core.flows.FlowLogic
 import net.corda.core.flows.IllegalFlowLogicException
+import net.corda.lazyhub.lazyHub
 import net.corda.node.services.statemachine.FlowLogicRefFactoryImpl
 import org.junit.Test
 import java.time.Duration
 
 class FlowLogicRefTest {
-
+    private val flowLogicRefFactory = FlowLogicRefFactoryImpl(lazyHub())
     data class ParamType1(val value: Int)
     data class ParamType2(val value: String)
 
@@ -36,45 +37,45 @@ class FlowLogicRefTest {
 
     @Test
     fun `create kotlin no arg`() {
-        FlowLogicRefFactoryImpl.createForRPC(KotlinNoArgFlowLogic::class.java)
+        flowLogicRefFactory.createForRPC(KotlinNoArgFlowLogic::class.java)
     }
 
     @Test
     fun `create kotlin`() {
         val args = mapOf(Pair("A", ParamType1(1)), Pair("b", ParamType2("Hello Jack")))
-        FlowLogicRefFactoryImpl.createKotlin(KotlinFlowLogic::class.java, args)
+        flowLogicRefFactory.createKotlin(KotlinFlowLogic::class.java, args.values)
     }
 
     @Test
     fun `create primary`() {
-        FlowLogicRefFactoryImpl.createForRPC(KotlinFlowLogic::class.java, ParamType1(1), ParamType2("Hello Jack"))
+        flowLogicRefFactory.createForRPC(KotlinFlowLogic::class.java, ParamType1(1), ParamType2("Hello Jack"))
     }
 
     @Test
     fun `create kotlin void`() {
-        FlowLogicRefFactoryImpl.createKotlin(KotlinFlowLogic::class.java, emptyMap())
+        flowLogicRefFactory.createKotlin(KotlinFlowLogic::class.java, emptyList())
     }
 
     @Test
     fun `create kotlin non primary`() {
         val args = mapOf(Pair("C", ParamType2("Hello Jack")))
-        FlowLogicRefFactoryImpl.createKotlin(KotlinFlowLogic::class.java, args)
+        flowLogicRefFactory.createKotlin(KotlinFlowLogic::class.java, args.values)
     }
 
     @Test
     fun `create java primitive no registration required`() {
         val args = mapOf(Pair("primitive", "A string"))
-        FlowLogicRefFactoryImpl.createKotlin(KotlinFlowLogic::class.java, args)
+        flowLogicRefFactory.createKotlin(KotlinFlowLogic::class.java, args.values)
     }
 
     @Test
     fun `create kotlin primitive no registration required`() {
         val args = mapOf(Pair("kotlinType", 3))
-        FlowLogicRefFactoryImpl.createKotlin(KotlinFlowLogic::class.java, args)
+        flowLogicRefFactory.createKotlin(KotlinFlowLogic::class.java, args.values)
     }
 
     @Test(expected = IllegalFlowLogicException::class)
     fun `create for non-schedulable flow logic`() {
-        FlowLogicRefFactoryImpl.create(NonSchedulableFlow::class.java)
+        flowLogicRefFactory.create(NonSchedulableFlow::class.java)
     }
 }

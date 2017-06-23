@@ -11,6 +11,7 @@ import net.corda.core.contracts.StateRef
 import net.corda.core.crypto.SecureHash
 import net.corda.core.flows.FlowInitiator
 import net.corda.core.flows.FlowLogic
+import net.corda.core.flows.FlowLogicRefFactory
 import net.corda.core.internal.ThreadBox
 import net.corda.core.internal.VisibleForTesting
 import net.corda.core.internal.until
@@ -19,10 +20,11 @@ import net.corda.core.serialization.SingletonSerializeAsToken
 import net.corda.core.utilities.loggerFor
 import net.corda.core.utilities.trace
 import net.corda.node.internal.MutableClock
+import net.corda.node.internal.StateLoaderInternal
+import net.corda.node.services.api.FlowStarter
 import net.corda.node.services.api.SchedulerService
-import net.corda.node.services.api.ServiceHubInternal
-import net.corda.node.services.statemachine.FlowLogicRefFactoryImpl
 import net.corda.node.utilities.AffinityExecutor
+import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.NODE_DATABASE_PREFIX
 import net.corda.node.utilities.PersistentMap
 import org.apache.activemq.artemis.utils.ReusableLatch
@@ -35,6 +37,7 @@ import javax.persistence.Column
 import javax.persistence.EmbeddedId
 import javax.persistence.Entity
 
+interface FlowStarterInternal : FlowStarter
 /**
  * A first pass of a simple [SchedulerService] that works with [MutableClock]s for testing, demonstrations and simulations
  * that also encompasses the [net.corda.core.node.services.Vault] observer for processing transactions.
@@ -52,7 +55,11 @@ import javax.persistence.Entity
  * activity.  Only replace this for unit testing purposes.  This is not the executor the [FlowLogic] is launched on.
  */
 @ThreadSafe
-class NodeSchedulerService(private val services: ServiceHubInternal,
+class NodeSchedulerService(private val flowStarter: FlowStarterInternal,
+                           private val stateLoader: StateLoaderInternal,
+                           private val clock: Clock,
+                           private val database: CordaPersistence,
+                           private val flowLogicRefFactory: FlowLogicRefFactory,
                            private val schedulerTimerExecutor: Executor = Executors.newSingleThreadExecutor(),
                            private val unfinishedSchedules: ReusableLatch = ReusableLatch(),
                            private val serverThread: AffinityExecutor)
@@ -223,7 +230,7 @@ class NodeSchedulerService(private val services: ServiceHubInternal,
                 log.trace { "Scheduling as next $scheduledState" }
                 // This will block the scheduler single thread until the scheduled time (returns false) OR
                 // the Future is cancelled due to rescheduling (returns true).
-                if (!awaitWithDeadline(services.clock, scheduledState.scheduledAt, ourRescheduledFuture)) {
+                if (!awaitWithDeadline(clock, scheduledState.scheduledAt, ourRescheduledFuture)) {
                     log.trace { "Invoking as next $scheduledState" }
                     onTimeReached(scheduledState)
                 } else {
@@ -237,11 +244,11 @@ class NodeSchedulerService(private val services: ServiceHubInternal,
         serverThread.execute {
             var flowName: String? = "(unknown)"
             try {
-                services.database.transaction {
+                database.transaction {
                     val scheduledFlow = getScheduledFlow(scheduledState)
                     if (scheduledFlow != null) {
                         flowName = scheduledFlow.javaClass.name
-                        val future = services.startFlow(scheduledFlow, FlowInitiator.Scheduled(scheduledState)).resultFuture
+                        val future = flowStarter.startFlow(scheduledFlow, FlowInitiator.Scheduled(scheduledState)).resultFuture
                         future.then {
                             unfinishedSchedules.countDown()
                         }
@@ -265,14 +272,14 @@ class NodeSchedulerService(private val services: ServiceHubInternal,
                     unfinishedSchedules.countDown()
                     scheduledStates.remove(scheduledState.ref)
                     scheduledStatesQueue.remove(scheduledState)
-                } else if (scheduledActivity.scheduledAt.isAfter(services.clock.instant())) {
+                } else if (scheduledActivity.scheduledAt.isAfter(clock.instant())) {
                     log.info("Scheduled state $scheduledState has rescheduled to ${scheduledActivity.scheduledAt}.")
                     var newState = ScheduledStateRef(scheduledState.ref, scheduledActivity.scheduledAt)
                     scheduledStates[scheduledState.ref] = newState
                     scheduledStatesQueue.remove(scheduledState)
                     scheduledStatesQueue.add(newState)
                 } else {
-                    val flowLogic = FlowLogicRefFactoryImpl.toFlowLogic(scheduledActivity.logicRef)
+                    val flowLogic = flowLogicRefFactory.toFlowLogic(scheduledActivity.logicRef)
                     log.trace { "Scheduler starting FlowLogic $flowLogic" }
                     scheduledFlow = flowLogic
                     scheduledStates.remove(scheduledState.ref)
@@ -286,11 +293,11 @@ class NodeSchedulerService(private val services: ServiceHubInternal,
     }
 
     private fun getScheduledActivity(scheduledState: ScheduledStateRef): ScheduledActivity? {
-        val txState = services.loadState(scheduledState.ref)
+        val txState = stateLoader.loadState(scheduledState.ref)
         val state = txState.data as SchedulableState
         return try {
             // This can throw as running contract code.
-            state.nextScheduledActivity(scheduledState.ref, FlowLogicRefFactoryImpl)
+            state.nextScheduledActivity(scheduledState.ref, flowLogicRefFactory)
         } catch (e: Exception) {
             log.error("Attempt to run scheduled state $scheduledState resulted in error.", e)
             null

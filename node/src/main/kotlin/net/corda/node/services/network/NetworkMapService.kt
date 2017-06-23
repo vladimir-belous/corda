@@ -115,7 +115,7 @@ interface NetworkMapService {
 object NullNetworkMapService : NetworkMapService
 
 @ThreadSafe
-class InMemoryNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minimumPlatformVersion: Int)
+class InMemoryNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minimumPlatformVersion: MinPlatformVersion)
     : AbstractNetworkMapService(network, networkMapCache, minimumPlatformVersion) {
 
     override val nodeRegistrations: MutableMap<PartyAndCertificate, NodeRegistrationInfo> = ConcurrentHashMap()
@@ -126,6 +126,9 @@ class InMemoryNetworkMapService(network: MessagingService, networkMapCache: Netw
     }
 }
 
+interface MinPlatformVersion {
+    val minimumPlatformVersion: Int
+}
 /**
  * Abstracted out core functionality as the basis for a persistent implementation, as well as existing in-memory implementation.
  *
@@ -136,6 +139,8 @@ class InMemoryNetworkMapService(network: MessagingService, networkMapCache: Netw
 abstract class AbstractNetworkMapService(network: MessagingService,
                                          private val networkMapCache: NetworkMapCacheInternal,
                                          private val minimumPlatformVersion: Int) : NetworkMapService, AbstractNodeService(network) {
+    constructor(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minimumPlatformVersion: MinPlatformVersion) : this(network, networkMapCache, minimumPlatformVersion.minimumPlatformVersion)
+
     companion object {
         /**
          * Maximum credible size for a registration request. Generally requests are around 2000-6000 bytes, so this gives a

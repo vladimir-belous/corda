@@ -27,6 +27,7 @@ import net.corda.testing.driver.driver
 import net.corda.testing.http.HttpApi
 import org.apache.commons.io.IOUtils
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.Ignore
 import org.junit.Test
 import rx.Observable
 import java.net.URL
@@ -44,6 +45,7 @@ class IRSDemoTest : IntegrationTestCategory {
     private val futureDate: LocalDate = currentDate.plusMonths(6)
     private val maxWaitTime: Duration = 60.seconds
 
+    @Ignore
     @Test
     fun `runs IRS demo`() {
         driver(useTestClock = true, isDebug = true) {

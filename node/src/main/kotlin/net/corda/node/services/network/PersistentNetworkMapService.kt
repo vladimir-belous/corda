@@ -26,6 +26,8 @@ import java.util.*
  */
 class PersistentNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minimumPlatformVersion: Int)
     : AbstractNetworkMapService(network, networkMapCache, minimumPlatformVersion) {
+    @Suppress("unused")
+    constructor(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minPlatformVersion: MinPlatformVersion) : this(network, networkMapCache, minPlatformVersion.minimumPlatformVersion)
 
     // Only the node_party_path column is needed to reconstruct a PartyAndCertificate but we have the others for human readability
     @Entity

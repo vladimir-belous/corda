@@ -1,6 +1,7 @@
 package net.corda.node.services.events
 
 import co.paralleluniverse.fibers.Suspendable
+import com.codahale.metrics.MetricRegistry
 import net.corda.core.contracts.*
 import net.corda.core.flows.FlowLogic
 import net.corda.core.flows.FlowLogicRef
@@ -8,19 +9,29 @@ import net.corda.core.flows.FlowLogicRefFactory
 import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
+import net.corda.core.node.NodeInfo
 import net.corda.core.node.ServiceHub
+import net.corda.core.node.StateLoader
+import net.corda.core.node.TransactionRecorder
+import net.corda.core.serialization.SerializeAsToken
 import net.corda.core.serialization.SingletonSerializeAsToken
+import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.days
+import net.corda.lazyhub.lazyHub
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.internal.cordapp.CordappProviderImpl
-import net.corda.node.services.api.VaultServiceInternal
+import net.corda.node.internal.FlowStarterImpl
+import net.corda.node.internal.ServiceHubInternal
+import net.corda.node.internal.StateLoaderImpl
+import net.corda.node.services.api.*
 import net.corda.node.services.identity.InMemoryIdentityService
+import net.corda.node.services.network.NetworkMapCacheImpl
 import net.corda.node.services.persistence.DBCheckpointStorage
 import net.corda.node.services.statemachine.FlowLogicRefFactoryImpl
 import net.corda.node.services.statemachine.StateMachineManager
+import net.corda.node.services.transactions.InMemoryTransactionVerifierService
 import net.corda.node.services.vault.NodeVaultService
-import net.corda.node.testing.MockServiceHubInternal
 import net.corda.node.utilities.AffinityExecutor
 import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.configureDatabase
@@ -28,9 +39,11 @@ import net.corda.testing.*
 import net.corda.testing.contracts.DummyContract
 import net.corda.testing.node.InMemoryMessagingNetwork
 import net.corda.testing.node.MockKeyManagementService
+import net.corda.testing.node.*
 import net.corda.testing.node.MockServices.Companion.makeTestDataSourceProperties
 import net.corda.testing.node.MockServices.Companion.makeTestDatabaseProperties
 import net.corda.testing.node.MockServices.Companion.makeTestIdentityService
+import net.corda.testing.node.MockServices.Companion.MOCK_VERSION_INFO
 import net.corda.testing.node.TestClock
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.After
@@ -51,13 +64,14 @@ class NodeSchedulerServiceTest : SingletonSerializeAsToken() {
 
     private val schedulerGatedExecutor = AffinityExecutor.Gate(true)
 
-    private lateinit var services: MockServiceHubInternal
-
+    private lateinit var services: ServiceHubInternal
+    private lateinit var flowLogicRefFactory: FlowLogicRefFactoryImpl
     private lateinit var scheduler: NodeSchedulerService
     private lateinit var smmExecutor: AffinityExecutor.ServiceAffinityExecutor
     private lateinit var database: CordaPersistence
     private lateinit var countDown: CountDownLatch
     private lateinit var smmHasRemovedAllFlows: CountDownLatch
+    private lateinit var mockSMM: StateMachineManager
 
     var calls: Int = 0
 
@@ -81,34 +95,64 @@ class NodeSchedulerServiceTest : SingletonSerializeAsToken() {
         database = configureDatabase(dataSourceProps, databaseProperties, ::makeTestIdentityService)
         val identityService = InMemoryIdentityService(trustRoot = DEV_TRUST_ROOT)
         val kms = MockKeyManagementService(identityService, ALICE_KEY)
-
+        val validatedTransactions = MockTransactionStorage()
+        val stateLoader = StateLoaderImpl(validatedTransactions)
+        val myInfo = NodeInfo(listOf(MOCK_HOST_AND_PORT), listOf(DUMMY_IDENTITY_1), MOCK_VERSION_INFO.platformVersion, serial = 1L)
         database.transaction {
+            val vaultService = NodeVaultService(testClock, kms, stateLoader, database.hibernateConfig)
+            val transactionRecorder = object : TransactionRecorderImpl(validatedTransactions, MockStateMachineRecordedTransactionMappingStorage(), vaultService, database) {
+                override fun recordTransactions(notifyVault: Boolean, txs: Iterable<SignedTransaction>) {
+                    recordTransactionsImpl(notifyVault, txs)
+                }
+            }
             val nullIdentity = CordaX500Name("None", "None", "GB")
             val mockMessagingService = InMemoryMessagingNetwork(false).InMemoryMessaging(
                     false,
                     InMemoryMessagingNetwork.PeerHandle(0, nullIdentity),
                     AffinityExecutor.ServiceAffinityExecutor("test", 1),
                     database)
-            services = object : MockServiceHubInternal(
-                    database,
-                    testNodeConfiguration(Paths.get("."), CordaX500Name("Alice", "London", "GB")),
-                    overrideClock = testClock,
-                    keyManagement = kms,
-                    network = mockMessagingService), TestReference {
-                override val vaultService: VaultServiceInternal = NodeVaultService(testClock, kms, stateLoader, database.hibernateConfig)
+            val configuration = testNodeConfiguration(Paths.get("."), CordaX500Name("Alice", "London", "GB"))
+            val attachments = MockAttachmentStorage()
+            val networkMapCache = NetworkMapCacheImpl(MockNetworkMapCache(database, configuration), MOCK_IDENTITY_SERVICE)
+            services = object : ServiceHubInternal, TestReference, StateLoader by stateLoader, TransactionRecorder by transactionRecorder {
+                override val attachments = attachments
+                override val transactionVerifierService = InMemoryTransactionVerifierService(2)
+                override val contractUpgradeService get() = throw UnsupportedOperationException()
+                override val identityService = MOCK_IDENTITY_SERVICE
+                override val networkMapCache = networkMapCache
+                override val vaultService = vaultService
                 override val testReference = this@NodeSchedulerServiceTest
                 override val cordappProvider = CordappProviderImpl(CordappLoader.createWithTestPackages(listOf("net.corda.testing.contracts")), attachments)
+                override fun jdbcSession() = database.createSession()
+                override fun <T : SerializeAsToken> cordaService(type: Class<T>) = throw UnsupportedOperationException()
+                override val myInfo = myInfo
+                override val keyManagementService = kms
+                override val clock = testClock
+                override val validatedTransactions = validatedTransactions
             }
             smmExecutor = AffinityExecutor.ServiceAffinityExecutor("test", 1)
-            scheduler = NodeSchedulerService(services, schedulerGatedExecutor, serverThread = smmExecutor)
-            val mockSMM = StateMachineManager(services, DBCheckpointStorage(), smmExecutor, database)
+            val flowFactories = object : FlowFactorySource {
+                override fun getFlowFactory(initiatingFlowClass: Class<out FlowLogic<*>>) = null
+            }
+            val monitoringService = MonitoringService(MetricRegistry())
+            val container = lazyHub().also {
+                it.obj(services)
+                it.obj(database)
+                it.obj(testClock)
+                it.obj(configuration)
+                it.impl(DummyAuditService::class)
+                it.obj(validatedTransactions)
+                it.obj(monitoringService)
+            }
+            mockSMM = StateMachineManager(myInfo, DBCheckpointStorage(), smmExecutor, database, configuration, monitoringService, attachments, networkMapCache, validatedTransactions, mockMessagingService, MOCK_VERSION_INFO, flowFactories, container)
             mockSMM.changes.subscribe { change ->
                 if (change is StateMachineManager.Change.Removed && mockSMM.allStateMachines.isEmpty()) {
                     smmHasRemovedAllFlows.countDown()
                 }
             }
             mockSMM.start()
-            services.smm = mockSMM
+            flowLogicRefFactory = FlowLogicRefFactoryImpl(container)
+            scheduler = NodeSchedulerService(FlowStarterImpl(smmExecutor, mockSMM, flowLogicRefFactory), stateLoader, testClock, database, flowLogicRefFactory, schedulerGatedExecutor, serverThread = smmExecutor)
             scheduler.start()
         }
     }
@@ -116,7 +160,7 @@ class NodeSchedulerServiceTest : SingletonSerializeAsToken() {
     @After
     fun tearDown() {
         // We need to make sure the StateMachineManager is done before shutting down executors.
-        if (services.smm.allStateMachines.isNotEmpty()) {
+        if (mockSMM.allStateMachines.isNotEmpty()) {
             smmHasRemovedAllFlows.await()
         }
         smmExecutor.shutdown()
@@ -280,7 +324,7 @@ class NodeSchedulerServiceTest : SingletonSerializeAsToken() {
         database.transaction {
             apply {
                 val freshKey = services.keyManagementService.freshKey()
-                val state = TestState(FlowLogicRefFactoryImpl.createForRPC(TestFlowLogic::class.java, increment), instant, services.myInfo.chooseIdentity())
+                val state = TestState(flowLogicRefFactory.createForRPC(TestFlowLogic::class.java, increment), instant, services.myInfo.chooseIdentity())
                 val builder = TransactionBuilder(null).apply {
                     addOutputState(state, DummyContract.PROGRAM_ID, DUMMY_NOTARY)
                     addCommand(Command(), freshKey)

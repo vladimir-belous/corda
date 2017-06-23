@@ -1,12 +1,9 @@
 package net.corda.nodeapi.internal
 
-import com.nhaarman.mockito_kotlin.mock
-import com.nhaarman.mockito_kotlin.whenever
 import net.corda.core.contracts.*
 import net.corda.core.crypto.SecureHash
 import net.corda.core.internal.declaredField
 import net.corda.core.internal.toWireTransaction
-import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.serialization.*
 import net.corda.core.utilities.ByteSequence
@@ -41,13 +38,7 @@ class AttachmentsClassLoaderTests : TestDependencyInjectionBase() {
         private const val ISOLATED_CONTRACT_CLASS_NAME = "net.corda.finance.contracts.isolated.AnotherDummyContract"
 
         private fun SerializationContext.withAttachmentStorage(attachmentStorage: AttachmentStorage): SerializationContext {
-            val serviceHub = mock<ServiceHub>()
-            whenever(serviceHub.attachments).thenReturn(attachmentStorage)
-            return this.withServiceHub(serviceHub)
-        }
-
-        private fun SerializationContext.withServiceHub(serviceHub: ServiceHub): SerializationContext {
-            return this.withTokenContext(SerializeAsTokenContextImpl(serviceHub) {}).withProperty(attachmentsClassLoaderEnabledPropertyName, true)
+            return this.withTokenContext(SerializeAsTokenContextImpl(attachmentStorage) {}).withProperty(attachmentsClassLoaderEnabledPropertyName, true)
         }
     }
 
@@ -283,7 +274,7 @@ class AttachmentsClassLoaderTests : TestDependencyInjectionBase() {
                 .withWhitelisted(contract.javaClass)
                 .withWhitelisted(Class.forName("$ISOLATED_CONTRACT_CLASS_NAME\$State", true, child))
                 .withWhitelisted(Class.forName("$ISOLATED_CONTRACT_CLASS_NAME\$Commands\$Create", true, child))
-                .withServiceHub(serviceHub)
+                .withAttachmentStorage(serviceHub.attachments)
                 .withClassLoader(child)
 
         val bytes = run {
@@ -310,8 +301,8 @@ class AttachmentsClassLoaderTests : TestDependencyInjectionBase() {
                 val attachmentRef = serviceHub.attachmentId
                 val bytes = run {
                     val outboundContext = SerializationFactory.defaultFactory.defaultContext
-                            .withServiceHub(serviceHub)
-                            .withClassLoader(child)
+                        .withAttachmentStorage(serviceHub.attachments)
+                        .withClassLoader(child)
                     val wireTransaction = tx.toWireTransaction(serviceHub, outboundContext)
                     wireTransaction.serialize(context = outboundContext)
                 }
@@ -345,7 +336,7 @@ class AttachmentsClassLoaderTests : TestDependencyInjectionBase() {
                     .defaultFactory
                     .defaultContext
                     .withWhitelisted(contract.javaClass)
-                    .withServiceHub(serviceHub)
+                    .withAttachmentStorage(serviceHub.attachments)
                     .withAttachmentsClassLoader(listOf(attachmentRef))
 
             // Serialize with custom context to avoid populating the default context with the specially loaded class
@@ -372,7 +363,7 @@ class AttachmentsClassLoaderTests : TestDependencyInjectionBase() {
                         .defaultFactory
                         .defaultContext
                         .withWhitelisted(contract.javaClass)
-                        .withServiceHub(serviceHub)
+                        .withAttachmentStorage(serviceHub.attachments)
                         .withAttachmentsClassLoader(listOf(attachmentRef))
                 serialized.deserialize(context = inboundContext)
             }

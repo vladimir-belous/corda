@@ -4,12 +4,11 @@ import co.paralleluniverse.fibers.Suspendable
 import net.corda.core.flows.FlowLogic
 import net.corda.core.flows.StartableByRPC
 import net.corda.core.internal.packageName
-import net.corda.core.messaging.startFlow
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.schemas.PersistentState
 import net.corda.core.utilities.getOrThrow
-import net.corda.node.services.api.ServiceHubInternal
 import net.corda.testing.driver.NodeHandle
+import net.corda.node.services.api.SchemaService
 import net.corda.testing.driver.driver
 import net.corda.testing.node.MockNetwork
 import net.corda.testing.schemas.DummyLinearStateSchemaV1
@@ -29,9 +28,7 @@ class NodeSchemaServiceTest {
         val mockNet = MockNetwork(cordappPackages = listOf(DummyLinearStateSchemaV1::class.packageName))
         val mockNode = mockNet.createNode()
         mockNet.runNetwork()
-        val schemaService = mockNode.services.schemaService
-        assertTrue(schemaService.schemaOptions.containsKey(DummyLinearStateSchemaV1))
-
+        assertTrue(mockNode.schemaService.schemaOptions.containsKey(DummyLinearStateSchemaV1))
         mockNet.stopNodes()
     }
 
@@ -45,7 +42,7 @@ class NodeSchemaServiceTest {
         driver(startNodesInProcess = true) {
             val node = startNode()
             val nodeHandle = node.getOrThrow()
-            val result = nodeHandle.rpc.startFlow(::MappedSchemasFlow)
+            val result = nodeHandle.rpc.startFlowDynamic(MappedSchemasFlow::class.java)
             val mappedSchemas = result.returnValue.getOrThrow()
             assertTrue(mappedSchemas.contains(TestSchema.name))
         }
@@ -62,11 +59,11 @@ class NodeSchemaServiceTest {
     }
 
     @StartableByRPC
-    class MappedSchemasFlow : FlowLogic<List<String>>() {
+    class MappedSchemasFlow(private val schemaService: SchemaService) : FlowLogic<List<String>>() {
         @Suspendable
         override fun call(): List<String> {
             // returning MappedSchema's as String'ified family names to avoid whitelist serialization errors
-            return (this.serviceHub as ServiceHubInternal).schemaService.schemaOptions.keys.map { it.name }
+            return schemaService.schemaOptions.keys.map { it.name }
         }
     }
 }

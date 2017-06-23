@@ -5,13 +5,14 @@ import net.corda.core.utilities.NetworkHostAndPort
 import net.corda.core.utilities.seconds
 import net.corda.node.internal.NetworkMapInfo
 import net.corda.node.services.messaging.CertificateChainCheckPolicy
+import net.corda.node.services.network.MinPlatformVersion
 import net.corda.nodeapi.User
 import net.corda.nodeapi.config.NodeSSLConfiguration
 import java.net.URL
 import java.nio.file.Path
 import java.util.*
 
-interface NodeConfiguration : NodeSSLConfiguration {
+interface NodeConfiguration : NodeSSLConfiguration, MinPlatformVersion {
     // myLegalName should be only used in the initial network registration, we should use the name from the certificate instead of this.
     // TODO: Remove this so we don't accidentally use this identity in the code?
     val myLegalName: CordaX500Name
@@ -20,7 +21,6 @@ interface NodeConfiguration : NodeSSLConfiguration {
      * service.
      */
     val networkMapService: NetworkMapInfo?
-    val minimumPlatformVersion: Int
     val emailAddress: String
     val exportJMXto: String
     val dataSourceProperties: Properties

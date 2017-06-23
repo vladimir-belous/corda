@@ -20,6 +20,7 @@ import net.corda.core.flows.NotaryException
 import net.corda.core.identity.Party
 import net.corda.core.internal.declaredField
 import net.corda.core.internal.toTypedArray
+import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.TimeWindowChecker
 import net.corda.core.node.services.UniquenessProvider
 import net.corda.core.schemas.PersistentStateRef
@@ -31,10 +32,10 @@ import net.corda.core.transactions.FilteredTransaction
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.debug
 import net.corda.core.utilities.loggerFor
-import net.corda.node.services.api.ServiceHubInternal
 import net.corda.node.services.transactions.BFTSMaRt.Client
 import net.corda.node.services.transactions.BFTSMaRt.Replica
 import net.corda.node.utilities.AppendOnlyPersistentMap
+import net.corda.node.utilities.CordaPersistence
 import java.nio.file.Path
 import java.security.PublicKey
 import java.util.*
@@ -176,8 +177,9 @@ object BFTSMaRt {
                            replicaId: Int,
                            createMap: () -> AppendOnlyPersistentMap<StateRef, UniquenessProvider.ConsumingTx,
                                    BFTNonValidatingNotaryService.PersistedCommittedState, PersistentStateRef>,
-                           protected val services: ServiceHubInternal,
-                           protected val notaryIdentityKey: PublicKey,
+                           protected val services: ServiceHub,
+                           private val notaryIdentityKey: PublicKey,
+                           private val database: CordaPersistence,
                            private val timeWindowChecker: TimeWindowChecker) : DefaultRecoverable() {
         companion object {
             private val log = loggerFor<Replica>()
@@ -196,7 +198,7 @@ object BFTSMaRt {
 
         override fun getStateManager() = stateManagerOverride
         // Must be initialised before ServiceReplica is started
-        private val commitLog = services.database.transaction { createMap() }
+        private val commitLog = database.transaction { createMap() }
         private val replica = run {
             config.waitUntilReplicaWillNotPrintStackTrace(replicaId)
             @Suppress("LeakingThis")
@@ -224,7 +226,7 @@ object BFTSMaRt {
         protected fun commitInputStates(states: List<StateRef>, txId: SecureHash, callerIdentity: Party) {
             log.debug { "Attempting to commit inputs for transaction: $txId" }
             val conflicts = mutableMapOf<StateRef, UniquenessProvider.ConsumingTx>()
-            services.database.transaction {
+            database.transaction {
                 states.forEach { state ->
                     commitLog[state]?.let { conflicts[state] = it }
                 }
@@ -250,11 +252,11 @@ object BFTSMaRt {
         }
 
         protected fun sign(bytes: ByteArray): DigitalSignature.WithKey {
-            return services.database.transaction { services.keyManagementService.sign(bytes, notaryIdentityKey) }
+            return database.transaction { services.keyManagementService.sign(bytes, notaryIdentityKey) }
         }
 
         protected fun sign(filteredTransaction: FilteredTransaction): TransactionSignature {
-            return services.database.transaction { services.createSignature(filteredTransaction, notaryIdentityKey) }
+            return database.transaction { services.createSignature(filteredTransaction, notaryIdentityKey) }
         }
 
         // TODO:
@@ -263,7 +265,7 @@ object BFTSMaRt {
         override fun getSnapshot(): ByteArray {
             // LinkedHashMap for deterministic serialisation
             val m = LinkedHashMap<StateRef, UniquenessProvider.ConsumingTx>()
-            services.database.transaction {
+            database.transaction {
                 commitLog.allPersisted().forEach { m[it.first] = it.second }
             }
             return m.serialize().bytes
@@ -271,7 +273,7 @@ object BFTSMaRt {
 
         override fun installSnapshot(bytes: ByteArray) {
             val m = bytes.deserialize<LinkedHashMap<StateRef, UniquenessProvider.ConsumingTx>>()
-            services.database.transaction {
+            database.transaction {
                 commitLog.clear()
                 commitLog.putAll(m)
             }

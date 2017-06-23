@@ -4,6 +4,8 @@ import net.corda.core.flows.FlowLogic;
 import net.corda.node.services.statemachine.FlowLogicRefFactoryImpl;
 import org.junit.Test;
 
+import static net.corda.lazyhub.LazyHubKt.lazyHub;
+
 public class FlowLogicRefFromJavaTest {
 
     @SuppressWarnings("unused")
@@ -50,11 +52,11 @@ public class FlowLogicRefFromJavaTest {
 
     @Test
     public void test() {
-        FlowLogicRefFactoryImpl.INSTANCE.createForRPC(JavaFlowLogic.class, new ParamType1(1), new ParamType2("Hello Jack"));
+        new FlowLogicRefFactoryImpl(lazyHub()).createForRPC(JavaFlowLogic.class, new ParamType1(1), new ParamType2("Hello Jack"));
     }
 
     @Test
     public void testNoArg() {
-        FlowLogicRefFactoryImpl.INSTANCE.createForRPC(JavaNoArgFlowLogic.class);
+        new FlowLogicRefFactoryImpl(lazyHub()).createForRPC(JavaNoArgFlowLogic.class);
     }
 }

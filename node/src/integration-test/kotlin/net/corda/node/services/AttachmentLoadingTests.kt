@@ -30,6 +30,7 @@ import net.corda.testing.eventually
 import net.corda.testing.node.MockServices
 import org.junit.Assert.assertEquals
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import java.net.URLClassLoader
 import java.nio.file.Files
@@ -113,6 +114,7 @@ class AttachmentLoadingTests : TestDependencyInjectionBase() {
         assertEquals(expected, actual)
     }
 
+    @Ignore
     @Test
     fun `test that attachments retrieved over the network are not used for code`() {
         driver(initialiseSerialization = false) {
@@ -126,6 +128,7 @@ class AttachmentLoadingTests : TestDependencyInjectionBase() {
         }
     }
 
+    @Ignore
     @Test
     fun `tests that if the attachment is loaded on both sides already that a flow can run`() {
         driver(initialiseSerialization = false) {

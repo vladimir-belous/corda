@@ -5,7 +5,10 @@ import co.paralleluniverse.strands.Strand
 import net.corda.core.contracts.*
 import net.corda.core.crypto.SecureHash
 import net.corda.core.internal.*
-import net.corda.core.node.StateLoader
+import net.corda.core.internal.ThreadBox
+import net.corda.core.internal.VisibleForTesting
+import net.corda.core.internal.bufferUntilSubscribed
+import net.corda.core.internal.tee
 import net.corda.core.node.services.*
 import net.corda.core.node.services.StatesNotAvailableException
 import net.corda.core.node.services.Vault
@@ -26,6 +29,7 @@ import net.corda.core.transactions.WireTransaction
 import net.corda.core.utilities.*
 import net.corda.node.services.api.VaultServiceInternal
 import net.corda.node.services.persistence.HibernateConfiguration
+import net.corda.node.internal.StateLoaderInternal
 import net.corda.node.services.statemachine.FlowStateMachineImpl
 import net.corda.node.utilities.DatabaseTransactionManager
 import net.corda.node.utilities.bufferUntilDatabaseCommit
@@ -59,7 +63,7 @@ private fun CriteriaBuilder.executeUpdate(session: Session, configure: Root<*>.(
  * TODO: keep an audit trail with time stamps of previously unconsumed states "as of" a particular point in time.
  * TODO: have transaction storage do some caching.
  */
-class NodeVaultService(private val clock: Clock, private val keyManagementService: KeyManagementService, private val stateLoader: StateLoader, hibernateConfig: HibernateConfiguration) : SingletonSerializeAsToken(), VaultServiceInternal {
+class NodeVaultService(private val clock: Clock, private val keyManagementService: KeyManagementService, private val stateLoader: StateLoaderInternal, hibernateConfig: HibernateConfiguration) : SingletonSerializeAsToken(), VaultServiceInternal {
 
     private companion object {
         val log = loggerFor<NodeVaultService>()

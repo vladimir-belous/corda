@@ -17,11 +17,18 @@ import net.corda.core.internal.concurrent.OpenFuture
 import net.corda.core.internal.concurrent.openFuture
 import net.corda.core.serialization.SerializationDefaults
 import net.corda.core.serialization.serialize
+import net.corda.core.internal.isRegularFile
+import net.corda.core.internal.staticField
+import net.corda.core.internal.uncheckedCast
+import net.corda.core.node.ServiceHub
+import net.corda.core.node.services.TransactionStorage
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.*
+import net.corda.node.internal.ServiceHubInternal
 import net.corda.node.services.api.FlowAppAuditEvent
 import net.corda.node.services.api.FlowPermissionAuditEvent
-import net.corda.node.services.api.ServiceHubInternal
+import net.corda.node.services.api.*
+import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.statemachine.FlowSessionState.Initiating
 import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.DatabaseTransaction
@@ -32,6 +39,7 @@ import java.nio.file.Paths
 import java.sql.SQLException
 import java.time.Duration
 import java.time.Instant
+import java.time.Clock
 import java.util.*
 import java.util.concurrent.TimeUnit
 
@@ -55,13 +63,29 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
     }
 
     // These fields shouldn't be serialised, so they are marked @Transient.
-    @Transient override lateinit var serviceHub: ServiceHubInternal
+    @Transient override lateinit var serviceHub: ServiceHub
     @Transient override lateinit var ourIdentityAndCert: PartyAndCertificate
-    @Transient internal lateinit var database: CordaPersistence
+    @Transient private lateinit var database: CordaPersistence
+    @Transient private lateinit var clock: Clock
+    @Transient private lateinit var auditService: AuditService
+    @Transient private lateinit var validatedTransactions: TransactionStorage
+    @Transient private lateinit var monitoringService: MonitoringService
+    @Transient private lateinit var configuration: NodeConfiguration
     @Transient internal lateinit var actionOnSuspend: (FlowIORequest) -> Unit
     @Transient internal lateinit var actionOnEnd: (Try<R>, Boolean) -> Unit
     @Transient internal var fromCheckpoint: Boolean = false
     @Transient private var txTrampoline: DatabaseTransaction? = null
+
+    fun init(serviceHub: ServiceHubInternal, ourIdentityAndCert: PartyAndCertificate, database: CordaPersistence, clock: Clock, configuration: NodeConfiguration, auditService: AuditService, validatedTransactions: TransactionStorage, monitoringService: MonitoringService) {
+        this.serviceHub = serviceHub
+        this.ourIdentityAndCert = ourIdentityAndCert
+        this.database = database
+        this.clock = clock
+        this.auditService = auditService
+        this.validatedTransactions = validatedTransactions
+        this.monitoringService = monitoringService
+        this.configuration = configuration
+    }
 
     /**
      * Return the logger for this state machine. The logger name incorporates [id] and so including it in the log message
@@ -225,7 +249,7 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
     override fun waitForLedgerCommit(hash: SecureHash, sessionFlow: FlowLogic<*>): SignedTransaction {
         logger.debug { "waitForLedgerCommit($hash) ..." }
         suspend(WaitForLedgerCommit(hash, sessionFlow.stateMachine as FlowStateMachineImpl<*>))
-        val stx = serviceHub.validatedTransactions.getTransaction(hash)
+        val stx = validatedTransactions.getTransaction(hash)
         if (stx != null) {
             logger.debug { "Transaction $hash committed to ledger" }
             return stx
@@ -253,7 +277,7 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
     override fun checkFlowPermission(permissionName: String, extraAuditData: Map<String, String>) {
         val permissionGranted = true // TODO define permission control service on ServiceHubInternal and actually check authorization.
         val checkPermissionEvent = FlowPermissionAuditEvent(
-                serviceHub.clock.instant(),
+                clock.instant(),
                 flowInitiator,
                 "Flow Permission Required: $permissionName",
                 extraAuditData,
@@ -261,7 +285,7 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
                 id,
                 permissionName,
                 permissionGranted)
-        serviceHub.auditService.recordAuditEvent(checkPermissionEvent)
+        auditService.recordAuditEvent(checkPermissionEvent)
         @Suppress("ConstantConditionIf")
         if (!permissionGranted) {
             throw FlowPermissionException("User $flowInitiator not permissioned for $permissionName on flow $id")
@@ -271,14 +295,14 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
     // TODO Dummy implementation of access to application specific audit logging
     override fun recordAuditEvent(eventType: String, comment: String, extraAuditData: Map<String, String>) {
         val flowAuditEvent = FlowAppAuditEvent(
-                serviceHub.clock.instant(),
+                clock.instant(),
                 flowInitiator,
                 comment,
                 extraAuditData,
                 logic.javaClass,
                 id,
                 eventType)
-        serviceHub.auditService.recordAuditEvent(flowAuditEvent)
+        auditService.recordAuditEvent(flowAuditEvent)
     }
 
     @Suspendable
@@ -287,7 +311,7 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
     }
 
     override fun persistFlowStackSnapshot(flowClass: Class<out FlowLogic<*>>) {
-        FlowStackSnapshotFactory.instance.persistAsJsonFile(flowClass, serviceHub.configuration.baseDirectory, id)
+        FlowStackSnapshotFactory.instance.persistAsJsonFile(flowClass, configuration.baseDirectory, id)
     }
 
     @Suspendable
@@ -520,7 +544,7 @@ class FlowStateMachineImpl<R>(override val id: StateMachineRunId,
      */
     private fun recordDuration(startTime: Long, success: Boolean = true) {
         val timerName = "FlowDuration.${if (success) "Success" else "Failure"}.${logic.javaClass.name}"
-        val timer = serviceHub.monitoringService.metrics.timer(timerName)
+        val timer = monitoringService.metrics.timer(timerName)
         // Start time gets serialized along with the fiber when it suspends
         val duration = System.nanoTime() - startTime
         timer.update(duration, TimeUnit.NANOSECONDS)

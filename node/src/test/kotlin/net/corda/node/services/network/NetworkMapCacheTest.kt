@@ -2,6 +2,7 @@ package net.corda.node.services.network
 
 import net.corda.core.node.services.NetworkMapCache
 import net.corda.core.utilities.getOrThrow
+import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.testing.ALICE
 import net.corda.testing.BOB
 import net.corda.testing.chooseIdentity
@@ -30,7 +31,7 @@ class NetworkMapCacheTest {
     fun registerWithNetwork() {
         mockNet.createNotaryNode()
         val aliceNode = mockNet.createPartyNode(ALICE.name)
-        val future = aliceNode.services.networkMapCache.addMapService(aliceNode.network, mockNet.networkMapNode.network.myAddress, false, null)
+        val future = (aliceNode.services.networkMapCache as NetworkMapCacheInternal).addMapService(aliceNode.network, mockNet.networkMapNode.network.myAddress, false, null)
         mockNet.runNetwork()
         future.getOrThrow()
     }
@@ -46,7 +47,7 @@ class NetworkMapCacheTest {
         val bobNode = mockNet.createNode(nodeFactory = MockNetwork.DefaultFactory, legalName = BOB.name, entropyRoot = entropy)
         assertEquals(aliceNode.info.chooseIdentity(), bobNode.info.chooseIdentity())
 
-        aliceNode.services.networkMapCache.addNode(bobNode.info)
+        (aliceNode.services.networkMapCache as NetworkMapCacheInternal).addNode(bobNode.info)
         // The details of node B write over those for node A
         assertEquals(aliceNode.services.networkMapCache.getNodesByLegalIdentityKey(aliceNode.info.chooseIdentity().owningKey).singleOrNull(), bobNode.info)
     }
@@ -83,7 +84,7 @@ class NetworkMapCacheTest {
         val aliceNode = mockNet.createPartyNode(ALICE.name)
         val notaryLegalIdentity = notaryNode.info.chooseIdentity()
         val alice = aliceNode.info.chooseIdentity()
-        val notaryCache = notaryNode.services.networkMapCache
+        val notaryCache = notaryNode.services.networkMapCache as NetworkMapCacheInternal
         mockNet.runNetwork()
         notaryNode.database.transaction {
             assertThat(notaryCache.getNodeByLegalIdentity(alice) != null)

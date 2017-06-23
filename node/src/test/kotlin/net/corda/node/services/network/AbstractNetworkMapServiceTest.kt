@@ -6,8 +6,8 @@ import net.corda.core.messaging.SingleMessageRecipient
 import net.corda.core.node.NodeInfo
 import net.corda.core.serialization.deserialize
 import net.corda.core.utilities.getOrThrow
+import net.corda.lazyhub.MutableLazyHub
 import net.corda.node.internal.StartedNode
-import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.messaging.send
@@ -274,7 +274,10 @@ abstract class AbstractNetworkMapServiceTest<out S : AbstractNetworkMapService> 
                             notaryIdentity: Pair<ServiceInfo, KeyPair>?,
                             entropyRoot: BigInteger): MockNode {
             return object : MockNode(config, network, null, id, notaryIdentity, entropyRoot) {
-                override fun makeNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal) = NullNetworkMapService
+                override fun configure(di: MutableLazyHub) {
+                    super.configure(di)
+                    di.obj(NetworkMapService::class, NullNetworkMapService)
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 package net.corda.node.services.transactions
 
 import com.codahale.metrics.Gauge
+import com.codahale.metrics.MetricRegistry
 import io.atomix.catalyst.buffer.BufferInput
 import io.atomix.catalyst.buffer.BufferOutput
 import io.atomix.catalyst.serializer.Serializer
@@ -25,8 +26,8 @@ import net.corda.core.serialization.SingletonSerializeAsToken
 import net.corda.core.serialization.deserialize
 import net.corda.core.serialization.serialize
 import net.corda.core.utilities.loggerFor
-import net.corda.node.services.api.ServiceHubInternal
 import net.corda.node.services.config.RaftConfig
+import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.utilities.AppendOnlyPersistentMap
 import net.corda.node.utilities.CordaPersistence
 import net.corda.nodeapi.config.SSLConfiguration
@@ -44,7 +45,7 @@ import javax.persistence.*
  * to the cluster leader to be actioned.
  */
 @ThreadSafe
-class RaftUniquenessProvider(private val services: ServiceHubInternal, private val raftConfig: RaftConfig) : UniquenessProvider, SingletonSerializeAsToken() {
+class RaftUniquenessProvider(private val nodeConfig: NodeConfiguration, private val raftConfig: RaftConfig, private val db: CordaPersistence, private val metrics: MetricRegistry) : UniquenessProvider, SingletonSerializeAsToken() {
     companion object {
         private val log = loggerFor<RaftUniquenessProvider>()
 
@@ -77,12 +78,8 @@ class RaftUniquenessProvider(private val services: ServiceHubInternal, private v
     )
 
     /** Directory storing the Raft log and state machine snapshots */
-    private val storagePath: Path = services.configuration.baseDirectory
+    private val storagePath: Path = nodeConfig.baseDirectory
     /** Address of the Copycat node run by this Corda node */
-    /** The database to store the state machine state in */
-    private val db: CordaPersistence = services.database
-    /** SSL configuration */
-    private val transportConfiguration: SSLConfiguration = services.configuration
 
     private lateinit var _clientFuture: CompletableFuture<CopycatClient>
     private lateinit var server: CopycatServer
@@ -101,7 +98,7 @@ class RaftUniquenessProvider(private val services: ServiceHubInternal, private v
         }
         val address = raftConfig.nodeAddress.let { Address(it.host, it.port) }
         val storage = buildStorage(storagePath)
-        val transport = buildTransport(transportConfiguration)
+        val transport = buildTransport(nodeConfig)
         val serializer = Serializer().apply {
             // Add serializers so Catalyst doesn't attempt to fall back on Java serialization for these types, which is disabled process-wide:
             register(DistributedImmutableMap.Commands.PutAll::class.java) {
@@ -177,15 +174,15 @@ class RaftUniquenessProvider(private val services: ServiceHubInternal, private v
     }
 
     private fun registerMonitoring() {
-        services.monitoringService.metrics.register("RaftCluster.ThisServerStatus", Gauge<String> {
+        metrics.register("RaftCluster.ThisServerStatus", Gauge<String> {
             server.state().name
         })
 
-        services.monitoringService.metrics.register("RaftCluster.MembersCount", Gauge<Int> {
+        metrics.register("RaftCluster.MembersCount", Gauge<Int> {
             server.cluster().members().size
         })
 
-        services.monitoringService.metrics.register("RaftCluster.Members", Gauge<List<String>> {
+        metrics.register("RaftCluster.Members", Gauge<List<String>> {
             server.cluster().members().map { it.address().toString() }
         })
     }

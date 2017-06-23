@@ -10,6 +10,8 @@ import net.corda.core.serialization.CordaSerializable
  */
 interface FlowLogicRefFactory {
     fun create(flowClass: Class<out FlowLogic<*>>, vararg args: Any?): FlowLogicRef
+    fun createForRPC(flowClass: Class<out FlowLogic<*>>, vararg args: Any?): FlowLogicRef
+    fun toFlowLogic(ref: FlowLogicRef): FlowLogic<*>
 }
 
 @CordaSerializable

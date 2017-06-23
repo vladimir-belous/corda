@@ -11,9 +11,13 @@ import net.corda.core.internal.concurrent.openFuture
 import net.corda.core.internal.concurrent.thenMatch
 import net.corda.core.internal.uncheckedCast
 import net.corda.core.messaging.RPCOps
+import net.corda.core.node.NodeInfo
 import net.corda.core.node.ServiceHub
+import net.corda.core.node.services.KeyManagementService
 import net.corda.core.serialization.SerializationDefaults
 import net.corda.core.utilities.*
+import net.corda.lazyhub.LazyHub
+import net.corda.lazyhub.MutableLazyHub
 import net.corda.node.VersionInfo
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.serialization.KryoServerSerializationScheme
@@ -21,7 +25,7 @@ import net.corda.node.serialization.NodeClock
 import net.corda.node.services.RPCUserService
 import net.corda.node.services.RPCUserServiceImpl
 import net.corda.node.services.api.NetworkMapCacheInternal
-import net.corda.node.services.api.SchemaService
+import net.corda.node.services.api.MonitoringService
 import net.corda.node.services.config.FullNodeConfiguration
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.messaging.ArtemisMessagingServer
@@ -29,10 +33,10 @@ import net.corda.node.services.messaging.ArtemisMessagingServer.Companion.ipDete
 import net.corda.node.services.messaging.ArtemisMessagingServer.Companion.ipDetectResponseProperty
 import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.messaging.NodeMessagingClient
-import net.corda.node.services.network.NetworkMapService
 import net.corda.node.services.network.PersistentNetworkMapService
 import net.corda.node.utilities.AddressUtils
 import net.corda.node.utilities.AffinityExecutor
+import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.TestClock
 import net.corda.nodeapi.ArtemisMessagingComponent
 import net.corda.nodeapi.ArtemisMessagingComponent.Companion.IP_REQUEST_PREFIX
@@ -101,7 +105,8 @@ open class Node(configuration: FullNodeConfiguration,
     override val log: Logger get() = logger
     override val configuration get() = super.configuration as FullNodeConfiguration // Necessary to avoid init order NPE.
     override val networkMapAddress: NetworkMapAddress? get() = configuration.networkMapService?.address?.let(::NetworkMapAddress)
-    override fun makeTransactionVerifierService() = (network as NodeMessagingClient).verifierService
+    override val started: StartedNode<Node>? get() = uncheckedCast(super.started)
+    override fun makeTransactionVerifierService(network: MessagingService) = (network as NodeMessagingClient).verifierService
 
     private val sameVmNodeNumber = sameVmNodeCounter.incrementAndGet() // Under normal (non-test execution) it will always be "1"
 
@@ -150,7 +155,7 @@ open class Node(configuration: FullNodeConfiguration,
 
     private lateinit var userService: RPCUserService
 
-    override fun makeMessagingService(legalIdentity: PartyAndCertificate): MessagingService {
+    override fun makeMessagingService(database: CordaPersistence, networkMapCache: NetworkMapCacheInternal, monitoringService: MonitoringService, legalIdentity: PartyAndCertificate, notaryIdentity: NotaryIdentity?): NodeMessagingClient {
         userService = RPCUserServiceImpl(configuration.rpcUsers)
 
         val (serverAddress, advertisedAddress) = with(configuration) {
@@ -158,7 +163,7 @@ open class Node(configuration: FullNodeConfiguration,
                 // External broker
                 messagingServerAddress to messagingServerAddress
             } else {
-                makeLocalMessageBroker() to getAdvertisedAddress()
+                makeLocalMessageBroker(networkMapCache) to getAdvertisedAddress()
             }
         }
 
@@ -173,13 +178,13 @@ open class Node(configuration: FullNodeConfiguration,
                 serverThread,
                 database,
                 nodeReadyFuture,
-                services.monitoringService,
+                monitoringService,
                 advertisedAddress)
     }
 
-    private fun makeLocalMessageBroker(): NetworkHostAndPort {
+    private fun makeLocalMessageBroker(networkMapCache: NetworkMapCacheInternal): NetworkHostAndPort {
         with(configuration) {
-            messageBroker = ArtemisMessagingServer(this, p2pAddress.port, rpcAddress?.port, services.networkMapCache, userService)
+            messageBroker = ArtemisMessagingServer(this, p2pAddress.port, rpcAddress?.port, networkMapCache, userService)
             return NetworkHostAndPort("localhost", p2pAddress.port)
         }
     }
@@ -261,7 +266,7 @@ open class Node(configuration: FullNodeConfiguration,
         return NetworkHostAndPort.parse(publicHostAndPort.removePrefix("/")).host
     }
 
-    override fun startMessagingService(rpcOps: RPCOps) {
+    override fun startMessagingService(rpcOps: RPCOps, network: MessagingService) {
         // Start up the embedded MQ server
         messageBroker?.apply {
             runOnStop += this::stop
@@ -276,18 +281,14 @@ open class Node(configuration: FullNodeConfiguration,
      * Insert an initial step in the registration process which will throw an exception if a non-recoverable error is
      * encountered when trying to connect to the network map node.
      */
-    override fun registerWithNetworkMap(): CordaFuture<Unit> {
+    override fun registerWithNetworkMap(info: NodeInfo, network: MessagingService, networkMapCache: NetworkMapCacheInternal, keyManagementService: KeyManagementService): CordaFuture<Unit> {
         val networkMapConnection = messageBroker?.networkMapConnectionFuture ?: doneFuture(Unit)
-        return networkMapConnection.flatMap { super.registerWithNetworkMap() }
+        return networkMapConnection.flatMap { super.registerWithNetworkMap(info, network, networkMapCache, keyManagementService) }
     }
 
-    override fun myAddresses(): List<NetworkHostAndPort> {
+    override fun myAddresses(network: MessagingService): List<NetworkHostAndPort> {
         val address = network.myAddress as ArtemisMessagingComponent.ArtemisPeerAddress
         return listOf(address.hostAndPort)
-    }
-
-    override fun makeNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal): NetworkMapService {
-        return PersistentNetworkMapService(network, networkMapCache, configuration.minimumPlatformVersion)
     }
 
     /**
@@ -300,7 +301,7 @@ open class Node(configuration: FullNodeConfiguration,
      * This is not using the H2 "automatic mixed mode" directly but leans on many of the underpinnings.  For more details
      * on H2 URLs and configuration see: http://www.h2database.com/html/features.html#database_url
      */
-    override fun <T> initialiseDatabasePersistence(schemaService: SchemaService, insideTransaction: () -> T): T {
+    override fun <T> initialiseDatabasePersistence(lh: LazyHub, insideTransaction: (CordaPersistence) -> T): T {
         val databaseUrl = configuration.dataSourceProperties.getProperty("dataSource.url")
         val h2Prefix = "jdbc:h2:file:"
         if (databaseUrl != null && databaseUrl.startsWith(h2Prefix)) {
@@ -317,21 +318,24 @@ open class Node(configuration: FullNodeConfiguration,
                 printBasicNodeInfo("Database connection url is", "jdbc:h2:$url/node")
             }
         }
-        return super.initialiseDatabasePersistence(schemaService, insideTransaction)
+        return super.initialiseDatabasePersistence(lh, insideTransaction)
     }
 
     private val _startupComplete = openFuture<Unit>()
     val startupComplete: CordaFuture<Unit> get() = _startupComplete
 
     override fun generateNodeInfo() {
-        initialiseSerialization()
+        initialiseSerialization(cordappLoader)
         super.generateNodeInfo()
     }
 
+    override fun configure(di: MutableLazyHub) {
+        if (initialiseSerialization) di.factory<Unit>(this::initialiseSerialization)
+        super.configure(di)
+        di.impl(PersistentNetworkMapService::class)
+    }
+
     override fun start(): StartedNode<Node> {
-        if (initialiseSerialization) {
-            initialiseSerialization()
-        }
         val started: StartedNode<Node> = uncheckedCast(super.start())
         nodeReadyFuture.thenMatch({
             serverThread.execute {
@@ -339,7 +343,7 @@ open class Node(configuration: FullNodeConfiguration,
                 //
                 // https://jolokia.org/agent/jvm.html
                 JmxReporter.
-                        forRegistry(started.services.monitoringService.metrics).
+                        forRegistry(started.metrics).
                         inDomain("net.corda").
                         createsObjectNamesWith { _, domain, name ->
                             // Make the JMX hierarchy a bit better organised.
@@ -364,7 +368,7 @@ open class Node(configuration: FullNodeConfiguration,
         return started
     }
 
-    private fun initialiseSerialization() {
+    private fun initialiseSerialization(cordappLoader: CordappLoader) {
         val classloader = cordappLoader.appClassLoader
         SerializationDefaults.SERIALIZATION_FACTORY = SerializationFactoryImpl().apply {
             registerScheme(KryoServerSerializationScheme())
@@ -378,7 +382,7 @@ open class Node(configuration: FullNodeConfiguration,
 
     /** Starts a blocking event loop for message dispatch. */
     fun run() {
-        (network as NodeMessagingClient).run(messageBroker!!.serverControl)
+        (started!!.network as NodeMessagingClient).run(messageBroker!!.serverControl)
     }
 
     private var shutdown = false

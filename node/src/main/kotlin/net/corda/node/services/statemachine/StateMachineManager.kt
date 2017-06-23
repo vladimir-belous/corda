@@ -17,6 +17,10 @@ import net.corda.core.flows.*
 import net.corda.core.identity.Party
 import net.corda.core.internal.*
 import net.corda.core.messaging.DataFeed
+import net.corda.core.node.NodeInfo
+import net.corda.core.node.services.AttachmentStorage
+import net.corda.core.node.services.NetworkMapCache
+import net.corda.core.node.services.TransactionStorage
 import net.corda.core.serialization.SerializationDefaults.CHECKPOINT_CONTEXT
 import net.corda.core.serialization.SerializationDefaults.SERIALIZATION_FACTORY
 import net.corda.core.serialization.SerializedBytes
@@ -26,10 +30,12 @@ import net.corda.core.utilities.Try
 import net.corda.core.utilities.debug
 import net.corda.core.utilities.loggerFor
 import net.corda.core.utilities.trace
+import net.corda.lazyhub.LazyHubFactory
+import net.corda.node.VersionInfo
 import net.corda.node.internal.InitiatedFlowFactory
-import net.corda.node.services.api.Checkpoint
-import net.corda.node.services.api.CheckpointStorage
-import net.corda.node.services.api.ServiceHubInternal
+import net.corda.node.services.api.*
+import net.corda.node.services.config.NodeConfiguration
+import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.messaging.ReceivedMessage
 import net.corda.node.services.messaging.TopicSession
 import net.corda.node.utilities.AffinityExecutor
@@ -73,10 +79,19 @@ import kotlin.collections.ArrayList
  * TODO: Don't store all active flows in memory, load from the database on demand.
  */
 @ThreadSafe
-class StateMachineManager(val serviceHub: ServiceHubInternal,
-                          val checkpointStorage: CheckpointStorage,
+class StateMachineManager(private val myInfo: NodeInfo,
+                          private val checkpointStorage: CheckpointStorage,
                           val executor: AffinityExecutor,
-                          val database: CordaPersistence,
+                          private val database: CordaPersistence,
+                          configuration: NodeConfiguration,
+                          monitoringService: MonitoringService,
+                          private val attachments: AttachmentStorage,
+                          private val networkMapCache: NetworkMapCache,
+                          private val validatedTransactions: TransactionStorage,
+                          private val networkService: MessagingService,
+                          private val versionInfo: VersionInfo,
+                          private val flowFactories: FlowFactorySource,
+                          private val container: LazyHubFactory,
                           private val unfinishedFibers: ReusableLatch = ReusableLatch(),
                           private val classloader: ClassLoader = javaClass.classLoader) {
 
@@ -116,7 +131,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
     private val scheduler = FiberScheduler()
     private val mutex = ThreadBox(InnerState())
     // This thread (only enabled in dev mode) deserialises checkpoints in the background to shake out bugs in checkpoint restore.
-    private val checkpointCheckerThread = if (serviceHub.configuration.devMode) Executors.newSingleThreadExecutor() else null
+    private val checkpointCheckerThread = if (configuration.devMode) Executors.newSingleThreadExecutor() else null
 
     @Volatile private var unrestorableCheckpoints = false
 
@@ -126,7 +141,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
     private val liveFibers = ReusableLatch()
 
     // Monitoring support.
-    private val metrics = serviceHub.monitoringService.metrics
+    private val metrics = monitoringService.metrics
 
     init {
         metrics.register("Flows.InFlight", Gauge<Int> { mutex.content.stateMachines.size })
@@ -142,7 +157,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
     internal val tokenizableServices = ArrayList<Any>()
     // Context for tokenized services in checkpoints
     private val serializationContext by lazy {
-        SerializeAsTokenContextImpl(tokenizableServices, SERIALIZATION_FACTORY, CHECKPOINT_CONTEXT, serviceHub)
+        SerializeAsTokenContextImpl(tokenizableServices, SERIALIZATION_FACTORY, CHECKPOINT_CONTEXT, attachments)
     }
 
     fun findServices(predicate: (Any) -> Boolean) = tokenizableServices.filter(predicate)
@@ -171,7 +186,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
         checkQuasarJavaAgentPresence()
         restoreFibersFromCheckpoints()
         listenToLedgerTransactions()
-        serviceHub.networkMapCache.nodeReady.then { executor.execute(this::resumeRestoredFibers) }
+        networkMapCache.nodeReady.then { executor.execute(this::resumeRestoredFibers) }
     }
 
     private fun checkQuasarJavaAgentPresence() {
@@ -183,7 +198,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
 
     private fun listenToLedgerTransactions() {
         // Observe the stream of committed, validated transactions and resume fibers that are waiting for them.
-        serviceHub.validatedTransactions.updates.subscribe { stx ->
+        validatedTransactions.updates.subscribe { stx ->
             val hash = stx.id
             val fibers: Set<FlowStateMachineImpl<*>> = mutex.locked { fibersWaitingForLedgerCommit.removeAll(hash) }
             if (fibers.isNotEmpty()) {
@@ -255,7 +270,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             started = true
             stateMachines.keys.forEach { resumeRestoredFiber(it) }
         }
-        serviceHub.networkService.addMessageHandler(sessionTopic) { message, _ ->
+        networkService.addMessageHandler(sessionTopic) { message, _ ->
             executor.checkOnThread()
             onSessionMessage(message)
         }
@@ -267,7 +282,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
         if (waitingForResponse != null) {
             if (waitingForResponse is WaitForLedgerCommit) {
                 val stx = database.transaction {
-                    serviceHub.validatedTransactions.getTransaction(waitingForResponse.hash)
+                    validatedTransactions.getTransaction(waitingForResponse.hash)
                 }
                 if (stx != null) {
                     fiber.logger.info("Resuming fiber as tx ${waitingForResponse.hash} has committed")
@@ -292,7 +307,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             logger.error("Received corrupt SessionMessage data from ${message.peer}")
             return
         }
-        val sender = serviceHub.networkMapCache.getPeerByLegalName(message.peer)
+        val sender = networkMapCache.getPeerByLegalName(message.peer)
         if (sender != null) {
             when (sessionMessage) {
                 is ExistingSessionMessage -> onExistingSessionMessage(sessionMessage, sender)
@@ -313,7 +328,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
                     return
                 }
                 if (message !is SessionConfirm) {
-                    serviceHub.networkService.cancelRedelivery(session.ourSessionId)
+                    networkService.cancelRedelivery(session.ourSessionId)
                 }
             }
             if (message is SessionEnd) {
@@ -393,8 +408,8 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
         }
 
         val (ourFlowVersion, appName) = when (initiatedFlowFactory) {
-        // The flow version for the core flows is the platform version
-            is InitiatedFlowFactory.Core -> serviceHub.myInfo.platformVersion to "corda"
+            // The flow version for the core flows is the platform version
+            is InitiatedFlowFactory.Core -> versionInfo.platformVersion to "corda"
             is InitiatedFlowFactory.CorDapp -> initiatedFlowFactory.flowVersion to initiatedFlowFactory.appName
         }
 
@@ -412,7 +427,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
         } catch (e: ClassCastException) {
             throw SessionRejectException("${sessionInit.initiatingFlowClass} is not a flow")
         }
-        return serviceHub.getFlowFactory(initiatingFlowClass) ?:
+        return flowFactories.getFlowFactory(initiatingFlowClass) ?:
                 throw SessionRejectException("$initiatingFlowClass is not registered")
     }
 
@@ -437,17 +452,19 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
                 logic,
                 scheduler,
                 flowInitiator,
-                ourIdentity ?: serviceHub.myInfo.legalIdentities[0])
+                ourIdentity ?: myInfo.legalIdentities[0])
         initFiber(fsm)
         return fsm
     }
 
     private fun initFiber(fiber: FlowStateMachineImpl<*>) {
         verifyFlowLogicIsSuspendable(fiber.logic)
-        fiber.database = database
-        fiber.serviceHub = serviceHub
-        fiber.ourIdentityAndCert = serviceHub.myInfo.legalIdentitiesAndCerts.find { it.party == fiber.ourIdentity }
-                ?: throw IllegalStateException("Identity specified by ${fiber.id} (${fiber.ourIdentity}) is not one of ours!")
+        container.child().let {
+            it.obj(myInfo.legalIdentitiesAndCerts.find { it.party == fiber.ourIdentity }
+                    ?: throw IllegalStateException("Identity specified by ${fiber.id} (${fiber.ourIdentity}) is not one of ours!"))
+            it.factory(fiber::init)
+            it.get(Unit::class)
+        }
         fiber.actionOnSuspend = { ioRequest ->
             updateCheckpoint(fiber)
             // We commit on the fibers transaction that was copied across ThreadLocals during suspend
@@ -601,7 +618,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
     private fun processWaitForCommitRequest(ioRequest: WaitForLedgerCommit) {
         // Is it already committed?
         val stx = database.transaction {
-            serviceHub.validatedTransactions.getTransaction(ioRequest.hash)
+            validatedTransactions.getTransaction(ioRequest.hash)
         }
         if (stx != null) {
             resumeFiber(ioRequest.fiber)
@@ -624,9 +641,9 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
     }
 
     private fun sendSessionMessage(party: Party, message: SessionMessage, fiber: FlowStateMachineImpl<*>? = null, retryId: Long? = null) {
-        val partyInfo = serviceHub.networkMapCache.getPartyInfo(party)
+        val partyInfo = networkMapCache.getPartyInfo(party)
                 ?: throw IllegalArgumentException("Don't know about party $party")
-        val address = serviceHub.networkService.getAddressOfParty(partyInfo)
+        val address = networkService.getAddressOfParty(partyInfo)
         val logger = fiber?.logger ?: logger
         logger.trace { "Sending $message to party $party @ $address" + if (retryId != null) " with retry $retryId" else "" }
 
@@ -648,7 +665,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             }
         }
 
-        serviceHub.networkService.apply {
+        networkService.apply {
             send(createMessage(sessionTopic, serialized.bytes), address, retryId = retryId)
         }
     }

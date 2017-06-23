@@ -1,23 +1,17 @@
 package net.corda.lazyhub
 
-import net.corda.core.internal.declaredField
-import net.corda.core.internal.filterNotNull
-import net.corda.core.internal.toTypedArray
-import net.corda.core.internal.uncheckedCast
+import net.corda.core.internal.*
 import net.corda.core.serialization.CordaSerializable
 import java.lang.reflect.Constructor
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.TypeVariable
 import java.util.*
 import java.util.stream.Stream
-import kotlin.collections.LinkedHashMap
 import kotlin.reflect.*
 import kotlin.reflect.jvm.internal.ReflectProperties
 import kotlin.reflect.jvm.isAccessible
 import kotlin.streams.toList
 
-private fun <T> Stream<T>.toTypedArray(ct: Class<T>): Array<T> = toArray { n -> uncheckedCast<Any, Array<T?>>(java.lang.reflect.Array.newInstance(ct, n)) }
-private fun <K, V> Stream<Pair<K, V>>.toMap() = collect<LinkedHashMap<K, V>>(::LinkedHashMap, { m, (k, v) -> m.put(k, v) }, { _, _ -> throw UnsupportedOperationException() })
 private fun Class<*>.complement() = if (isPrimitive) {
     java.lang.reflect.Array.get(java.lang.reflect.Array.newInstance(this, 1), 0).javaClass
 } else try {
@@ -79,7 +73,19 @@ private fun <T> KFunction<T>.callWith(argSuppliers: List<Pair<KParam, ArgSupplie
     return callBy(argSuppliers.stream().map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
 }
 
-private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
+private class BusyProviders {
+    private val busyProviders = mutableSetOf<Provider<*>>()
+    fun <T> with(provider: Provider<T>, factory: () -> T): T {
+        if (!busyProviders.add(provider)) throw CircularDependencyException("Provider $provider is already busy: $busyProviders")
+        return try {
+            factory()
+        } finally {
+            busyProviders.remove(provider)
+        }
+    }
+}
+
+private class LazyHubImpl(private val parent: LazyHubImpl?, internal val busyProviders: BusyProviders = parent?.busyProviders ?: BusyProviders()) : MutableLazyHub {
     private val providers = mutableMapOf<Class<*>, MutableList<Provider<*>>>()
     private fun add(seen: MutableSet<Class<*>>, type: Class<*>, provider: Provider<*>) {
         providers[type]?.add(provider) ?: providers.put(type, mutableListOf(provider))
@@ -91,7 +97,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
     private fun add(provider: Provider<*>) = add(mutableSetOf(), provider.type, provider)
     private fun <T> findProviders(clazz: Class<T>): List<Provider<T>>? = uncheckedCast(providers[clazz]) ?: parent?.findProviders(clazz)
     private fun dropAll(clazz: Class<*>) = providers.iterator().run { while (hasNext()) if (clazz satisfiedBy next().key) remove() }
-    override fun <T> getOrNull(clazz: Class<T>) = ((findProviders(clazz) ?: throw NoSuchProviderException(clazz)).singleOrNull() ?: throw TooManyProvidersException(clazz)).obj
+    override fun <T> getOrNull(clazz: Class<T>) = findProviders(clazz)?.run { (singleOrNull() ?: throw TooManyProvidersException(clazz)).obj }
     override fun <T> getAll(clazz: Class<T>) = (findProviders(clazz) ?: throw NoSuchProviderException(clazz)).stream().map { it.obj }.toTypedArray(clazz)
     override fun <T> getProvider(clazz: Class<T>) = ((findProviders(clazz) ?: throw NoSuchProviderException(clazz)).singleOrNull() ?: throw TooManyProvidersException(clazz)).run { { obj } }
     override fun child(): MutableLazyHub = LazyHubImpl(this)
@@ -103,7 +109,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
     override fun <T> factory(factory: KFunction<T>) {
         factory.isAccessible = true
         val params = factory.parameters.map(::KParam)
-        add(LazyProvider(uncheckedCast(factory.returnType.toClass())) { factory.callWith(argSuppliers(factory, params)) })
+        add(LazyProvider(busyProviders, uncheckedCast(factory.returnType.toClass())) { factory.callWith(argSuppliers(factory, params)) })
     }
 
     internal fun <P : Param> argSuppliers(function: Any, params: List<P>) = run {
@@ -111,7 +117,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
         val argSuppliers = params.mapTo(ArrayList(params.size)) { param ->
             if (param.type.isArray) {
                 fun <T> arraySupplier(componentType: Class<T>) = findProviders(componentType)?.let {
-                    ArgSupplier(arrayProvider(uncheckedCast(param.type), componentType, it))
+                    ArgSupplier(arrayProvider(busyProviders, uncheckedCast(param.type), componentType, it))
                 }
                 arraySupplier(param.type.componentType)
             } else {
@@ -126,7 +132,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
                 }
             }
         }
-        unconsumed.isEmpty() || throw IllegalStateException("Unconsumed $unconsumed for function: $function")
+        unconsumed.isEmpty() || throw IllegalStateException("Consumed $consumed but not $unconsumed for function: $function")
         fun tryStealingIfNeeded(index: Int) {
             params[index].unsatisfiableHandler != forgetAboutIt && return
             (index - 1 downTo 0).forEach { leftIndex ->
@@ -193,15 +199,17 @@ private class ConstProvider<T : Any>(override val obj: T) : Provider<T> {
     override fun toString() = "${javaClass.simpleName}($obj)"
 }
 
-private class LazyProvider<T>(override val type: Class<T>, private val factory: () -> T) : Provider<T> {
-    override val obj by lazy { factory() }
+class CircularDependencyException(message: String) : LazyHubException(message)
+private class LazyProvider<T>(private val busyProviders: BusyProviders, override val type: Class<T>, private val factory: () -> T) : Provider<T> {
+    override val obj by lazy { busyProviders.with(this, factory) }
+    override fun toString() = "${javaClass.simpleName}($type, $factory)"
 }
 
-private fun <T> arrayProvider(type: Class<Array<T>>, componentType: Class<T>, providers: List<Provider<T>>) = LazyProvider(type) {
+private fun <T> arrayProvider(busyProviders: BusyProviders, type: Class<Array<T>>, componentType: Class<T>, providers: List<Provider<T>>) = LazyProvider(busyProviders, type) {
     providers.stream().map { it.obj }.toTypedArray(componentType)
 }
 
-private fun <T : Any> kImplProvider(container: LazyHubImpl, type: KClass<T>) = LazyProvider(type.java) {
+private fun <T : Any> kImplProvider(container: LazyHubImpl, type: KClass<T>) = LazyProvider(container.busyProviders, type.java) {
     val (constructor, argSuppliers) = container.greediestSatisfiableConstructor(
             type,
             type.constructors.stream().filter { it.visibility == KVisibility.PUBLIC },
@@ -209,7 +217,7 @@ private fun <T : Any> kImplProvider(container: LazyHubImpl, type: KClass<T>) = L
     constructor.callWith(argSuppliers)
 }
 
-private fun <T> jImplProvider(container: LazyHubImpl, type: Class<T>) = LazyProvider(type) {
+private fun <T> jImplProvider(container: LazyHubImpl, type: Class<T>) = LazyProvider(container.busyProviders, type) {
     val (constructor, argSuppliers) = container.greediestSatisfiableConstructor(
             type,
             Arrays.stream<Constructor<T>>(uncheckedCast(type.constructors)),

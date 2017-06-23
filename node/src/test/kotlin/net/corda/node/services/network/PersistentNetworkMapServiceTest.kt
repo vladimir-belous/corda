@@ -2,6 +2,7 @@ package net.corda.node.services.network
 
 import net.corda.core.messaging.SingleMessageRecipient
 import net.corda.node.services.api.NetworkMapCacheInternal
+import net.corda.lazyhub.MutableLazyHub
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.messaging.MessagingService
 import net.corda.nodeapi.internal.ServiceInfo
@@ -35,7 +36,10 @@ class PersistentNetworkMapServiceTest : AbstractNetworkMapServiceTest<Persistent
                             notaryIdentity: Pair<ServiceInfo, KeyPair>?,
                             entropyRoot: BigInteger): MockNode {
             return object : MockNode(config, network, networkMapAddr, id, notaryIdentity, entropyRoot) {
-                override fun makeNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal) = SwizzleNetworkMapService(network, networkMapCache)
+                override fun configure(di: MutableLazyHub) {
+                    super.configure(di)
+                    di.impl(NetworkMapService::class, SwizzleNetworkMapService::class)
+                }
             }
         }
     }
@@ -44,7 +48,8 @@ class PersistentNetworkMapServiceTest : AbstractNetworkMapServiceTest<Persistent
      * We use a special [NetworkMapService] that allows us to switch in a new instance at any time to check that the
      * state within it is correctly restored.
      */
-    private class SwizzleNetworkMapService(private val delegateFactory: () -> PersistentNetworkMapService) : NetworkMapService {
+    class SwizzleNetworkMapService private constructor(private val delegateFactory: () -> PersistentNetworkMapService) : NetworkMapService {
+        @Suppress("UNUSED")
         constructor(network: MessagingService, networkMapCache: NetworkMapCacheInternal) : this({ PersistentNetworkMapService(network, networkMapCache, 1) })
 
         var delegate = delegateFactory()

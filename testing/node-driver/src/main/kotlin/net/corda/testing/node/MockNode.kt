@@ -17,20 +17,22 @@ import net.corda.core.messaging.RPCOps
 import net.corda.core.messaging.SingleMessageRecipient
 import net.corda.core.node.services.IdentityService
 import net.corda.core.node.services.KeyManagementService
-import net.corda.core.serialization.SerializationWhitelist
 import net.corda.core.utilities.NetworkHostAndPort
 import net.corda.core.utilities.getOrThrow
 import net.corda.core.utilities.loggerFor
 import net.corda.finance.utils.WorldMapLocation
+import net.corda.lazyhub.LazyHub
+import net.corda.lazyhub.MutableLazyHub
 import net.corda.node.internal.AbstractNode
 import net.corda.node.internal.StartedNode
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.services.api.NetworkMapCacheInternal
-import net.corda.node.services.api.SchemaService
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.config.BFTSMaRtConfiguration
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.config.NotaryConfig
+import net.corda.node.internal.*
+import net.corda.node.services.api.MonitoringService
 import net.corda.node.services.keys.E2ETestKeyManagementService
 import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.network.InMemoryNetworkMapService
@@ -42,6 +44,7 @@ import net.corda.node.utilities.AffinityExecutor
 import net.corda.node.utilities.AffinityExecutor.ServiceAffinityExecutor
 import net.corda.testing.DUMMY_KEY_1
 import net.corda.testing.initialiseTestSerialization
+import net.corda.node.utilities.CordaPersistence
 import net.corda.testing.*
 import net.corda.testing.node.MockServices.Companion.MOCK_VERSION_INFO
 import net.corda.testing.node.MockServices.Companion.makeTestDataSourceProperties
@@ -51,7 +54,6 @@ import java.io.Closeable
 import java.math.BigInteger
 import java.nio.file.Path
 import java.security.KeyPair
-import java.security.PublicKey
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -171,13 +173,13 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
 
         // We only need to override the messaging service here, as currently everything that hits disk does so
         // through the java.nio API which we are already mocking via Jimfs.
-        override fun makeMessagingService(legalIdentity: PartyAndCertificate): MessagingService {
+        override fun makeMessagingService(database: CordaPersistence, networkMapCache: NetworkMapCacheInternal, monitoringService: MonitoringService, legalIdentity: PartyAndCertificate, notaryIdentity: NotaryIdentity?): InMemoryMessagingNetwork.InMemoryMessaging {
             require(id >= 0) { "Node ID must be zero or positive, was passed: " + id }
             return mockNet.messagingNetwork.createNodeWithID(
                     !mockNet.threadPerNode,
                     id,
                     serverThread,
-                    getNotaryIdentity(),
+                    notaryIdentity?.notaryIdentity,
                     myLegalName,
                     database)
                     .start()
@@ -188,12 +190,8 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
             return E2ETestKeyManagementService(identityService, partyKeys + (notaryIdentity?.let { setOf(it.second) } ?: emptySet()))
         }
 
-        override fun startMessagingService(rpcOps: RPCOps) {
+        override fun startMessagingService(rpcOps: RPCOps, network: MessagingService) {
             // Nothing to do
-        }
-
-        override fun makeNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal): NetworkMapService {
-            return InMemoryNetworkMapService(network, networkMapCache, 1)
         }
 
         // This is not thread safe, but node construction is done on a single thread, so that should always be fine
@@ -203,20 +201,14 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
         }
 
         // It's OK to not have a network map service in the mock network.
-        override fun noNetworkMapConfigured() = doneFuture(Unit)
+        override fun noNetworkMapConfigured(networkMapCache: NetworkMapCacheInternal) = doneFuture(Unit)
 
         // There is no need to slow down the unit tests by initialising CityDatabase
         open fun findMyLocation(): WorldMapLocation? = null // It's left only for NetworkVisualiserSimulation
 
-        override fun makeTransactionVerifierService() = InMemoryTransactionVerifierService(1)
+        override fun makeTransactionVerifierService(network: MessagingService) = InMemoryTransactionVerifierService(1)
 
-        override fun myAddresses() = emptyList<NetworkHostAndPort>()
-
-        // Allow unit tests to modify the serialization whitelist list before the node start,
-        // so they don't have to ServiceLoad test whitelists into all unit tests.
-        val testSerializationWhitelists by lazy { super.serializationWhitelists.toMutableList() }
-        override val serializationWhitelists: List<SerializationWhitelist>
-            get() = testSerializationWhitelists
+        override fun myAddresses(network: MessagingService) = emptyList<NetworkHostAndPort>()
 
         // This does not indirect through the NodeInfo object so it can be called before the node is started.
         // It is used from the network visualiser tool.
@@ -225,9 +217,9 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
             get() = findMyLocation()!!
 
         private var dbCloser: (() -> Any?)? = null
-        override fun <T> initialiseDatabasePersistence(schemaService: SchemaService, insideTransaction: () -> T) = super.initialiseDatabasePersistence(schemaService) {
-            dbCloser = database::close
-            insideTransaction()
+        override fun <T> initialiseDatabasePersistence(lh: LazyHub, insideTransaction: (CordaPersistence) -> T) = super.initialiseDatabasePersistence(lh) {
+            dbCloser = it::close
+            insideTransaction(it)
         }
 
         fun disableDBCloseOnStop() {
@@ -244,17 +236,30 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
 
         override fun acceptableLiveFiberCountOnStop(): Int = acceptableLiveFiberCountOnStop
 
-        override fun makeBFTCluster(notaryKey: PublicKey, bftSMaRtConfig: BFTSMaRtConfiguration): BFTSMaRt.Cluster {
-            return object : BFTSMaRt.Cluster {
-                override fun waitUntilAllReplicasHaveInitialized() {
-                    val clusterNodes = mockNet.nodes.filter { notaryKey in it.started!!.info.legalIdentities.map { it.owningKey } }
-                    if (clusterNodes.size != bftSMaRtConfig.clusterAddresses.size) {
-                        throw IllegalStateException("Unable to enumerate all nodes in BFT cluster.")
-                    }
-                    clusterNodes.forEach {
-                        val notaryService = it.started!!.smm.findServices { it is BFTNonValidatingNotaryService }.single() as BFTNonValidatingNotaryService
-                        notaryService.waitUntilReplicaHasInitialized()
-                    }
+        override fun configure(di: MutableLazyHub) {
+            super.configure(di)
+            di.obj(mockNet)
+            di.impl(BFTSMaRt.Cluster::class, MockBFTSMaRtCluster::class)
+            di.impl(NetworkMapService::class, InMemoryNetworkMapService::class)
+            if (notaryIdentity != null && notaryIdentity.first.type.isNotary()) {
+                di.getOrNull(NotaryIdentity::class)?.let { defaultIdentity ->
+                    // Ensure that we always have notary in name and type of it. TODO It is temporary solution until we will have proper handling of NetworkParameters
+                    di.obj(NotaryIdentity::class, NotaryIdentity(getTestPartyAndCertificate(defaultIdentity.notaryIdentity.name, notaryIdentity.second.public)))
+                }
+            }
+        }
+
+        class MockBFTSMaRtCluster(private val mockNet: MockNetwork, private val bftSMaRtConfig: BFTSMaRtConfiguration, private val notaryIdentity: NotaryIdentity) : BFTSMaRt.Cluster {
+            override fun waitUntilAllReplicasHaveInitialized() {
+                val clusterNodes = mockNet.nodes.filter {
+                    notaryIdentity.notaryIdentity.owningKey in it.started!!.info.legalIdentitiesAndCerts.map { it.owningKey }
+                }
+                if (clusterNodes.size != bftSMaRtConfig.clusterAddresses.size) {
+                    throw IllegalStateException("Unable to enumerate all nodes in BFT cluster.")
+                }
+                clusterNodes.forEach {
+                    val notaryService = it.started!!.smm.findServices { it is BFTNonValidatingNotaryService }.single() as BFTNonValidatingNotaryService
+                    notaryService.waitUntilReplicaHasInitialized()
                 }
             }
         }

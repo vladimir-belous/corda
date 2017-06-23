@@ -224,7 +224,7 @@ object InteractiveShell {
      */
     @JvmStatic
     fun runFlowByNameFragment(nameFragment: String, inputData: String, output: RenderPrintWriter) {
-        val matches = node.services.rpcFlows.filter { nameFragment in it.name }
+        val matches = node.rpcFlows.rpcFlows.filter { nameFragment in it.name }
         if (matches.isEmpty()) {
             output.println("No matching flow found, run 'flow list' to see your options.", Color.red)
             return
