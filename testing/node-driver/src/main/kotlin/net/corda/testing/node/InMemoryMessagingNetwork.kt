@@ -128,7 +128,7 @@ class InMemoryMessagingNetwork(
             id: Int,
             executor: AffinityExecutor,
             notaryService: PartyAndCertificate?,
-            description: CordaX500Name = CordaX500Name(organisation = "In memory node $id", locality = "London", country = "UK"),
+            description: CordaX500Name = CordaX500Name("In memory node $id", "London", "UK"),
             database: CordaPersistence)
             : MessagingServiceBuilder<InMemoryMessaging> {
         val peerHandle = PeerHandle(id, description)

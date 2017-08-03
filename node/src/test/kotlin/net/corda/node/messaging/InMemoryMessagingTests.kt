@@ -50,8 +50,8 @@ class InMemoryMessagingTests {
     @Test
     fun basics() {
         val node1 = mockNet.createNode(advertisedServices = ServiceInfo(NetworkMapService.type))
-        val node2 = mockNet.createNode(networkMapAddress = node1.network.myAddress)
-        val node3 = mockNet.createNode(networkMapAddress = node1.network.myAddress)
+        val node2 = mockNet.createNode(node1.network.myAddress)
+        val node3 = mockNet.createNode(node1.network.myAddress)
 
         val bits = "test-content".toByteArray()
         var finalDelivery: Message? = null
@@ -79,8 +79,8 @@ class InMemoryMessagingTests {
     @Test
     fun broadcast() {
         val node1 = mockNet.createNode(advertisedServices = ServiceInfo(NetworkMapService.type))
-        val node2 = mockNet.createNode(networkMapAddress = node1.network.myAddress)
-        val node3 = mockNet.createNode(networkMapAddress = node1.network.myAddress)
+        val node2 = mockNet.createNode(node1.network.myAddress)
+        val node3 = mockNet.createNode(node1.network.myAddress)
 
         val bits = "test-content".toByteArray()
 
@@ -98,7 +98,7 @@ class InMemoryMessagingTests {
     @Test
     fun `skip unhandled messages`() {
         val node1 = mockNet.createNode(advertisedServices = ServiceInfo(NetworkMapService.type))
-        val node2 = mockNet.createNode(networkMapAddress = node1.network.myAddress)
+        val node2 = mockNet.createNode(node1.network.myAddress)
         var received: Int = 0
 
         node1.network.addMessageHandler("valid_message") { _, _ ->

@@ -28,7 +28,7 @@ class NodeConfigTest {
 
     companion object {
         private val baseDir: Path = Paths.get(".").toAbsolutePath()
-        private val myLegalName = CordaX500Name(organisation = "My Name", locality = "New York", country = "US")
+        private val myLegalName = CordaX500Name("My Name", "New York", "US")
     }
 
     @Test
@@ -252,7 +252,7 @@ class NodeConfigTest {
     }
 
     private fun createConfig(
-            legalName: CordaX500Name = CordaX500Name(organisation = "Unknown", locality = "Nowhere", country = "GB"),
+            legalName: CordaX500Name = CordaX500Name("Unknown", "Nowhere", "GB"),
             p2pPort: Int = -1,
             rpcPort: Int = -1,
             webPort: Int = -1,

@@ -330,7 +330,7 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
         val id = forcedID ?: nextNodeId++
         val config = testNodeConfiguration(
                 baseDirectory = baseDirectory(id).createDirectories(),
-                myLegalName = legalName ?: CordaX500Name(organisation = "Mock Company $id", locality = "London", country = "GB")).also {
+                myLegalName = legalName ?: CordaX500Name("Mock Company $id", "London", "GB")).also {
             whenever(it.dataSourceProperties).thenReturn(makeTestDataSourceProperties("node_${id}_net_$networkId"))
             configOverrides(it)
         }

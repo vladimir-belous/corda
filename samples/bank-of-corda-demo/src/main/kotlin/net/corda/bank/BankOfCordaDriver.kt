@@ -27,7 +27,7 @@ fun main(args: Array<String>) {
 val BANK_USERNAME = "bankUser"
 val BIGCORP_USERNAME = "bigCorpUser"
 
-val BIGCORP_LEGAL_NAME = CordaX500Name(organisation = "BigCorporation", locality = "New York", country = "US")
+val BIGCORP_LEGAL_NAME = CordaX500Name("BigCorporation", "New York", "US")
 
 private class BankOfCordaDriver {
     enum class Role {

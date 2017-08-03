@@ -210,7 +210,7 @@ fun commandGenerator(partiesToPickFrom: Collection<Party>): Generator<Pair<Comma
 }
 
 val partyGenerator: Generator<Party> = Generator.int().combine(publicKeyGenerator) { n, key ->
-    Party(CordaX500Name(organisation = "Party$n", locality = "London", country = "GB"), key)
+    Party(CordaX500Name("Party$n", "London", "GB"), key)
 }
 
 fun <A> pickOneOrMaybeNew(from: Collection<A>, generator: Generator<A>): Generator<A> {

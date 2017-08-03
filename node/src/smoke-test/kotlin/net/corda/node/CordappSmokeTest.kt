@@ -29,7 +29,7 @@ class CordappSmokeTest {
     private val factory = NodeProcess.Factory()
 
     private val aliceConfig = NodeConfig(
-            legalName = CordaX500Name(organisation = "Alice Corp", locality = "Madrid", country = "ES"),
+            legalName = CordaX500Name("Alice Corp", "Madrid", "ES"),
             p2pPort = port.andIncrement,
             rpcPort = port.andIncrement,
             webPort = port.andIncrement,

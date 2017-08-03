@@ -9,7 +9,6 @@ import net.corda.core.identity.PartyAndCertificate
 import net.corda.core.internal.toX509CertHolder
 import net.corda.core.node.services.UnknownAnonymousPartyException
 import net.corda.core.internal.cert
-import net.corda.node.services.identity.InMemoryIdentityService
 import net.corda.node.utilities.CertificateAndKeyPair
 import net.corda.node.utilities.CertificateType
 import net.corda.node.utilities.X509Utilities
@@ -62,7 +61,7 @@ class InMemoryIdentityServiceTests {
         val service = InMemoryIdentityService(trustRoot = DEV_TRUST_ROOT)
         service.verifyAndRegisterIdentity(ALICE_IDENTITY)
         service.verifyAndRegisterIdentity(BOB_IDENTITY)
-        val alicente = getTestPartyAndCertificate(CordaX500Name(organisation = "Alicente Worldwide", locality = "London", country = "GB"), generateKeyPair().public)
+        val alicente = getTestPartyAndCertificate(CordaX500Name("Alicente Worldwide", "London", "GB"), generateKeyPair().public)
         service.verifyAndRegisterIdentity(alicente)
         assertEquals(setOf(ALICE, alicente.party), service.partiesFromName("Alice", false))
         assertEquals(setOf(ALICE), service.partiesFromName("Alice Corp", true))
@@ -73,7 +72,7 @@ class InMemoryIdentityServiceTests {
     fun `get identity by name`() {
         val service = InMemoryIdentityService(trustRoot = DEV_TRUST_ROOT)
         val identities = listOf("Org A", "Org B", "Org C")
-                .map { getTestPartyAndCertificate(CordaX500Name(organisation = it, locality = "London", country = "GB"), generateKeyPair().public) }
+                .map { getTestPartyAndCertificate(CordaX500Name(it, "London", "GB"), generateKeyPair().public) }
         assertNull(service.wellKnownPartyFromX500Name(identities.first().name))
         identities.forEach { service.verifyAndRegisterIdentity(it) }
         identities.forEach { assertEquals(it.party, service.wellKnownPartyFromX500Name(it.name)) }

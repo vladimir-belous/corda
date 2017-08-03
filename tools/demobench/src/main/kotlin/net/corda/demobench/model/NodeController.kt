@@ -55,11 +55,7 @@ class NodeController(check: atRuntime = ::checkExists) : Controller() {
         val location = nodeData.nearestCity.value
         val config = NodeConfig(
                 baseDir,
-                CordaX500Name(
-                        organisation = nodeData.legalName.value.trim(),
-                        locality = location.description,
-                        country = location.countryCode
-                ),
+                CordaX500Name(nodeData.legalName.value.trim(), location.description, location.countryCode),
                 nodeData.p2pPort.value,
                 nodeData.rpcPort.value,
                 nodeData.webPort.value,

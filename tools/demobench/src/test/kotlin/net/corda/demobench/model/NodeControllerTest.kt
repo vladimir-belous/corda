@@ -60,14 +60,14 @@ class NodeControllerTest {
 
     @Test
     fun `test register unique nodes`() {
-        val config = createConfig(commonName = organisation2Name)
+        val config = createConfig(organisation = organisation2Name)
         assertTrue(controller.register(config))
         assertFalse(controller.register(config))
     }
 
     @Test
     fun `test unique key after register`() {
-        val config = createConfig(commonName = organisation2Name)
+        val config = createConfig(organisation = organisation2Name)
 
         assertFalse(controller.keyExists("organisation2"))
         controller.register(config)
@@ -76,7 +76,7 @@ class NodeControllerTest {
 
     @Test
     fun `test matching name after register`() {
-        val config = createConfig(commonName = organisation2Name)
+        val config = createConfig(organisation = organisation2Name)
 
         assertFalse(controller.nameExists("Organisation 2"))
         assertFalse(controller.nameExists("Organisation2"))
@@ -89,7 +89,7 @@ class NodeControllerTest {
 
     @Test
     fun `test register network map node`() {
-        val config = createConfig(commonName = "Organisation is Network Map")
+        val config = createConfig(organisation = "Organisation is Network Map")
         assertTrue(config.isNetworkMap())
 
         assertFalse(controller.hasNetworkMap())
@@ -99,7 +99,7 @@ class NodeControllerTest {
 
     @Test
     fun `test register non-network-map node`() {
-        val config = createConfig(commonName = "Organisation is not Network Map")
+        val config = createConfig(organisation = "Organisation is not Network Map")
         config.networkMap = NetworkMapConfig(DUMMY_NOTARY.name, 10000)
         assertFalse(config.isNetworkMap())
 
@@ -154,7 +154,7 @@ class NodeControllerTest {
 
     @Test
     fun `dispose node`() {
-        val config = createConfig(commonName = "MyName")
+        val config = createConfig(organisation = "MyName")
         controller.register(config)
 
         assertEquals(NodeState.STARTING, config.state)
@@ -165,7 +165,7 @@ class NodeControllerTest {
     }
 
     private fun createConfig(
-            commonName: String = "Unknown",
+            organisation: String = "Unknown",
             p2pPort: Int = -1,
             rpcPort: Int = -1,
             webPort: Int = -1,
@@ -174,11 +174,7 @@ class NodeControllerTest {
             users: List<User> = listOf(user("guest"))
     ) = NodeConfig(
             baseDir,
-            legalName = CordaX500Name(
-                    organisation = commonName,
-                    locality = "New York",
-                    country = "US"
-            ),
+            legalName = CordaX500Name(organisation, "New York", "US"),
             p2pPort = p2pPort,
             rpcPort = rpcPort,
             webPort = webPort,

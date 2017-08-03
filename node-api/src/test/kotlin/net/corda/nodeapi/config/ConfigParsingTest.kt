@@ -111,7 +111,7 @@ class ConfigParsingTest {
 
     @Test
     fun x500Name() {
-        testPropertyType<X500NameData, X500NameListData, CordaX500Name>(CordaX500Name(organisation = "Mock Party", locality = "London", country = "GB"), CordaX500Name(organisation = "Mock Party 2", locality = "London", country = "GB"), valuesToString = true)
+        testPropertyType<X500NameData, X500NameListData, CordaX500Name>(CordaX500Name("Mock Party", "London", "GB"), CordaX500Name("Mock Party 2", "London", "GB"), valuesToString = true)
     }
 
     @Test

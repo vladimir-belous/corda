@@ -31,8 +31,7 @@ class P2PSecurityTest : NodeBasedTest() {
 
     @Test
     fun `incorrect legal name for the network map service config`() {
-        val incorrectNetworkMapName = CordaX500Name(organisation = "NetworkMap-${random63BitValue()}",
-                locality = "London", country = "GB")
+        val incorrectNetworkMapName = CordaX500Name("NetworkMap-${random63BitValue()}", "London", "GB")
         val node = startNode(BOB.name, configOverrides = mapOf(
                 "networkMapService" to mapOf(
                         "address" to networkMapNode.internals.configuration.p2pAddress.toString(),
