@@ -226,8 +226,8 @@ private fun IntProgression.toSpliterator(): Spliterator.OfInt {
 
 fun IntProgression.stream(parallel: Boolean = false): IntStream = StreamSupport.intStream(toSpliterator(), parallel)
 
-@Suppress("UNCHECKED_CAST") // When toArray has filled in the array, the component type is no longer T? but T (that may itself be nullable).
-inline fun <reified T> Stream<out T>.toTypedArray() = toArray { size -> arrayOfNulls<T>(size) } as Array<T>
+// When toArray has filled in the array, the component type is no longer T? but T (that may itself be nullable):
+inline fun <reified T> Stream<out T>.toTypedArray(): Array<T> = uncheckedCast(toArray { size -> arrayOfNulls<T>(size) })
 
 fun <T> Class<T>.castIfPossible(obj: Any): T? = if (isInstance(obj)) cast(obj) else null
 
@@ -235,11 +235,12 @@ fun <T> Class<T>.castIfPossible(obj: Any): T? = if (isInstance(obj)) cast(obj) e
 fun <T> Class<*>.staticField(name: String): DeclaredField<T> = DeclaredField(this, name, null)
 /** Returns a [DeclaredField] wrapper around the declared (possibly non-public) static field of the receiver [KClass]. */
 fun <T> KClass<*>.staticField(name: String): DeclaredField<T> = DeclaredField(java, name, null)
-/** Returns a [DeclaredField] wrapper around the declared (possibly non-public) instance field of the receiver object. */
+/** @suppress Returns a [DeclaredField] wrapper around the declared (possibly non-public) instance field of the receiver object. */
 fun <T> Any.declaredField(name: String): DeclaredField<T> = DeclaredField(javaClass, name, this)
 /**
  * Returns a [DeclaredField] wrapper around the (possibly non-public) instance field of the receiver object, but declared
  * in its superclass [clazz].
+ * @suppress
  */
 fun <T> Any.declaredField(clazz: KClass<*>, name: String): DeclaredField<T> = DeclaredField(clazz.java, name, this)
 
@@ -255,8 +256,7 @@ fun <T: Any> KClass<T>.objectOrNewInstance(): T {
 class DeclaredField<T>(clazz: Class<*>, name: String, private val receiver: Any?) {
     private val javaField = clazz.getDeclaredField(name).apply { isAccessible = true }
     var value: T
-        @Suppress("UNCHECKED_CAST")
-        get() = javaField.get(receiver) as T
+        get() = uncheckedCast<Any?, T>(javaField.get(receiver))
         set(value) = javaField.set(receiver, value)
 }
 
