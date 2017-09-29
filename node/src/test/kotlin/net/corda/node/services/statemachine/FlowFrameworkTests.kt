@@ -797,7 +797,7 @@ class FlowFrameworkTests {
     private fun erroredEnd(errorResponse: FlowException? = null) = ErrorSessionEnd(0, errorResponse)
 
     private fun StartedNode<*>.sendSessionMessage(message: SessionMessage, destination: StartedNode<*>) {
-        services.networkService.apply {
+        network.apply {
             val address = getAddressOfParty(PartyInfo.SingleNode(destination.info.chooseIdentity(), emptyList()))
             send(createMessage(StateMachineManager.sessionTopic, message.serialize().bytes), address)
         }

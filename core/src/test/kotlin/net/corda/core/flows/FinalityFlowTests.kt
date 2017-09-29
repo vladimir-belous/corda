@@ -49,7 +49,7 @@ class FinalityFlowTests {
         mockNet.runNetwork()
         val notarisedTx = flow.resultFuture.getOrThrow()
         notarisedTx.verifyRequiredSignatures()
-        val transactionSeenByB = bobNode.services.database.transaction {
+        val transactionSeenByB = bobNode.database.transaction {
             bobNode.services.validatedTransactions.getTransaction(notarisedTx.id)
         }
         assertEquals(notarisedTx, transactionSeenByB)
