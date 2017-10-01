@@ -74,7 +74,7 @@ abstract class Simulation(val networkSendManuallyPumped: Boolean,
 
             val cfg = testNodeConfiguration(
                     baseDirectory = config.baseDirectory,
-                    myLegalName = CordaX500Name(organisation = "Bank $letter", locality = city, country = country))
+                    myLegalName = CordaX500Name("Bank $letter", city, country))
             return SimulatedNode(cfg, network, networkMapAddr, advertisedServices, id, overrideServices, entropyRoot)
         }
 
@@ -114,7 +114,7 @@ abstract class Simulation(val networkSendManuallyPumped: Boolean,
 
     object RatesOracleFactory : MockNetwork.Factory<SimulatedNode> {
         // TODO: Make a more realistic legal name
-        val RATES_SERVICE_NAME = CordaX500Name(organisation = "Rates Service Provider", locality = "Madrid", country = "ES")
+        val RATES_SERVICE_NAME = CordaX500Name("Rates Service Provider", "Madrid", "ES")
 
         override fun create(config: NodeConfiguration, network: MockNetwork, networkMapAddr: SingleMessageRecipient?,
                             advertisedServices: Set<ServiceInfo>, id: Int, overrideServices: Map<ServiceInfo, KeyPair>?,

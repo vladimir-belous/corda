@@ -78,8 +78,8 @@ class ExplorerSimulation(val options: OptionSet) {
             val bob = startNode(providedName = BOB.name, rpcUsers = arrayListOf(user),
                     advertisedServices = setOf(ServiceInfo(ServiceType.corda.getSubType("cash"))),
                     customOverrides = mapOf("nearestCity" to "Madrid"))
-            val ukBankName = CordaX500Name(organisation = "UK Bank Plc", locality = "London", country = "GB")
-            val usaBankName = CordaX500Name(organisation = "USA Bank Corp", locality = "New York", country = "US")
+            val ukBankName = CordaX500Name("UK Bank Plc", "London", "GB")
+            val usaBankName = CordaX500Name("USA Bank Corp", "New York", "US")
             val issuerGBP = startNode(providedName = ukBankName, rpcUsers = arrayListOf(manager),
                     advertisedServices = setOf(ServiceInfo(ServiceType.corda.getSubType("issuer.GBP"))),
                     customOverrides = mapOf("nearestCity" to "London"))

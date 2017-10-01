@@ -60,7 +60,7 @@ class StandaloneCordaRPClientTest {
     private lateinit var notaryNodeIdentity: Party
 
     private val notaryConfig = NodeConfig(
-            legalName = CordaX500Name(organisation = "Notary Service", locality = "Zurich", country = "CH"),
+            legalName = CordaX500Name("Notary Service", "Zurich", "CH"),
             p2pPort = port.andIncrement,
             rpcPort = port.andIncrement,
             webPort = port.andIncrement,

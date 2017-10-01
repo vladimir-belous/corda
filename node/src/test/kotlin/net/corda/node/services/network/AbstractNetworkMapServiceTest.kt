@@ -49,7 +49,7 @@ abstract class AbstractNetworkMapServiceTest<out S : AbstractNetworkMapService> 
     lateinit var alice: StartedNode<MockNode>
 
     companion object {
-        val subscriberLegalName = CordaX500Name(organisation ="Subscriber", locality ="New York", country ="US")
+        val subscriberLegalName = CordaX500Name("Subscriber", "New York", "US")
     }
 
     @Before

@@ -35,7 +35,7 @@ class NetworkRegistrationHelperTest {
         val identities = listOf("CORDA_CLIENT_CA",
                 "CORDA_INTERMEDIATE_CA",
                 "CORDA_ROOT_CA")
-                .map { CordaX500Name(commonName = it, organisation = "R3 Ltd", locality = "London", country = "GB") }
+                .map { CordaX500Name(it, "R3 Ltd", "London", "GB") }
         val certs = identities.stream().map { X509Utilities.createSelfSignedCACertificate(it, Crypto.generateKeyPair(X509Utilities.DEFAULT_TLS_SIGNATURE_SCHEME)) }
                 .map { it.cert }.toTypedArray()
 
@@ -79,9 +79,9 @@ class NetworkRegistrationHelperTest {
             assertTrue(containsAlias(X509Utilities.CORDA_CLIENT_TLS))
             val certificateChain = getCertificateChain(X509Utilities.CORDA_CLIENT_TLS)
             assertEquals(4, certificateChain.size)
-            assertEquals(listOf(CordaX500Name(organisation = "R3 Ltd", locality = "London", country = "GB").x500Name) + identities.map { it.x500Name },
+            assertEquals(listOf(CordaX500Name("R3 Ltd", "London", "GB").x500Name) + identities.map { it.x500Name },
                     certificateChain.map { it.toX509CertHolder().subject })
-            assertEquals(CordaX500Name(organisation = "R3 Ltd", locality = "London", country = "GB").x500Principal,
+            assertEquals(CordaX500Name("R3 Ltd", "London", "GB").x500Principal,
                     getX509Certificate(X509Utilities.CORDA_CLIENT_TLS).subjectX500Principal)
         }
 

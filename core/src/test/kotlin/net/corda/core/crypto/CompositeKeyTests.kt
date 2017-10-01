@@ -331,7 +331,7 @@ class CompositeKeyTests : TestDependencyInjectionBase() {
 
         // Create self sign CA.
         val caKeyPair = Crypto.generateKeyPair()
-        val caName = CordaX500Name(commonName = "Test CA", organisation = "R3 Ltd", locality = "London", country = "GB")
+        val caName = CordaX500Name("Test CA", "R3 Ltd", "London", "GB")
         val ca = X509Utilities.createSelfSignedCACertificate(caName, caKeyPair)
 
         // Sign the composite key with the self sign CA.

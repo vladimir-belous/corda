@@ -19,7 +19,7 @@ class PartyAndCertificateTest {
     fun `kryo serialisation`() {
         withTestSerialization {
             val original = getTestPartyAndCertificate(Party(
-                    CordaX500Name(organisation = "Test Corp", locality = "Madrid", country = "ES"),
+                    CordaX500Name("Test Corp", "Madrid", "ES"),
                     entropyToKeyPair(BigInteger.valueOf(83)).public))
             val copy = original.serialize().deserialize()
             assertThat(copy).isEqualTo(original).isNotSameAs(original)
@@ -32,7 +32,7 @@ class PartyAndCertificateTest {
     fun `jdk serialization`() {
         withTestSerialization {
             val identity = getTestPartyAndCertificate(Party(
-                    CordaX500Name(organisation = "Test Corp", locality = "Madrid", country = "ES"),
+                    CordaX500Name("Test Corp", "Madrid",  "ES"),
                     entropyToKeyPair(BigInteger.valueOf(83)).public))
             val original = identity.certificate
             val storePassword = "test"

@@ -43,9 +43,9 @@ class NotaryChangeTests {
         oldNotaryNode = mockNet.createNode(
                 legalName = DUMMY_NOTARY.name,
                 advertisedServices = *arrayOf(ServiceInfo(NetworkMapService.type), ServiceInfo(ValidatingNotaryService.type)))
-        clientNodeA = mockNet.createNode(networkMapAddress = oldNotaryNode.network.myAddress)
-        clientNodeB = mockNet.createNode(networkMapAddress = oldNotaryNode.network.myAddress)
-        newNotaryNode = mockNet.createNode(networkMapAddress = oldNotaryNode.network.myAddress, advertisedServices = ServiceInfo(ValidatingNotaryService.type))
+        clientNodeA = mockNet.createNode(oldNotaryNode.network.myAddress)
+        clientNodeB = mockNet.createNode(oldNotaryNode.network.myAddress)
+        newNotaryNode = mockNet.createNode(oldNotaryNode.network.myAddress, advertisedServices = ServiceInfo(ValidatingNotaryService.type))
         mockNet.registerIdentities()
         mockNet.runNetwork() // Clear network map registration messages
         oldNotaryNode.internals.ensureRegistered()
@@ -86,7 +86,7 @@ class NotaryChangeTests {
     @Test
     fun `should throw when a participant refuses to change Notary`() {
         val state = issueMultiPartyState(clientNodeA, clientNodeB, oldNotaryNode, oldNotaryParty)
-        val newEvilNotary = getTestPartyAndCertificate(CordaX500Name(organisation = "Evil R3", locality = "London", country = "GB"), generateKeyPair().public)
+        val newEvilNotary = getTestPartyAndCertificate(CordaX500Name("Evil R3", "London", "GB"), generateKeyPair().public)
         val flow = NotaryChangeFlow(state, newEvilNotary.party)
         val future = clientNodeA.services.startFlow(flow)
 

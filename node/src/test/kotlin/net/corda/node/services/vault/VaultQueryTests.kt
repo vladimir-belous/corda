@@ -54,7 +54,7 @@ class VaultQueryTests : TestDependencyInjectionBase() {
 
     // test cash notary
     private val CASH_NOTARY_KEY: KeyPair by lazy { entropyToKeyPair(BigInteger.valueOf(21)) }
-    private val CASH_NOTARY: Party get() = Party(CordaX500Name(organisation = "Cash Notary Service", locality = "Zurich", country = "CH"), CASH_NOTARY_KEY.public)
+    private val CASH_NOTARY: Party get() = Party(CordaX500Name("Cash Notary Service", "Zurich", "CH"), CASH_NOTARY_KEY.public)
     private val CASH_NOTARY_IDENTITY: PartyAndCertificate get() = getTestPartyAndCertificate(CASH_NOTARY.nameOrNull(), CASH_NOTARY_KEY.public)
 
     @Before
@@ -1489,15 +1489,15 @@ class VaultQueryTests : TestDependencyInjectionBase() {
     fun `unconsumed fungible assets for selected issuer parties`() {
         // GBP issuer
         val gbpCashIssuerKey = entropyToKeyPair(BigInteger.valueOf(1001))
-        val gbpCashIssuer = Party(CordaX500Name(organisation = "British Pounds Cash Issuer", locality = "London", country = "GB"), gbpCashIssuerKey.public).ref(1)
+        val gbpCashIssuer = Party(CordaX500Name("British Pounds Cash Issuer", "London", "GB"), gbpCashIssuerKey.public).ref(1)
         val gbpCashIssuerServices = MockServices(gbpCashIssuerKey)
         // USD issuer
         val usdCashIssuerKey = entropyToKeyPair(BigInteger.valueOf(1002))
-        val usdCashIssuer = Party(CordaX500Name(organisation = "US Dollars Cash Issuer", locality = "New York", country = "US"), usdCashIssuerKey.public).ref(1)
+        val usdCashIssuer = Party(CordaX500Name("US Dollars Cash Issuer", "New York", "US"), usdCashIssuerKey.public).ref(1)
         val usdCashIssuerServices = MockServices(usdCashIssuerKey)
         // CHF issuer
         val chfCashIssuerKey = entropyToKeyPair(BigInteger.valueOf(1003))
-        val chfCashIssuer = Party(CordaX500Name(organisation = "Swiss Francs Cash Issuer", locality = "Zurich", country = "CH"), chfCashIssuerKey.public).ref(1)
+        val chfCashIssuer = Party(CordaX500Name("Swiss Francs Cash Issuer", "Zurich", "CH"), chfCashIssuerKey.public).ref(1)
         val chfCashIssuerServices = MockServices(chfCashIssuerKey)
 
         database.transaction {

@@ -15,7 +15,7 @@ import org.apache.activemq.artemis.api.core.client.*
 class SimpleMQClient(val target: NetworkHostAndPort,
                      override val config: SSLConfiguration? = configureTestSSL(DEFAULT_MQ_LEGAL_NAME)) : ArtemisMessagingComponent() {
     companion object {
-        val DEFAULT_MQ_LEGAL_NAME = CordaX500Name(organisation = "SimpleMQClient", locality = "London", country = "GB")
+        val DEFAULT_MQ_LEGAL_NAME = CordaX500Name("SimpleMQClient", "London", "GB")
     }
 
     lateinit var sessionFactory: ClientSessionFactory
