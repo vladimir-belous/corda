@@ -1,4 +1,5 @@
 @file:JvmName("ConcurrencyUtils")
+
 package net.corda.core.concurrent
 
 import net.corda.core.internal.concurrent.openFuture
@@ -7,7 +8,7 @@ import net.corda.core.internal.VisibleForTesting
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.concurrent.Future
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Semaphore
 
 /** Invoke [getOrThrow] and pass the value/throwable to success/failure respectively. */
 fun <V, W> Future<V>.match(success: (V) -> W, failure: (Throwable) -> W): W {
@@ -32,10 +33,10 @@ internal const val shortCircuitedTaskFailedMessage = "Short-circuited task faile
 
 internal fun <V, W> firstOf(futures: Array<out CordaFuture<out V>>, log: Logger, handler: (CordaFuture<out V>) -> W): CordaFuture<W> {
     val resultFuture = openFuture<W>()
-    val winnerChosen = AtomicBoolean()
+    val handlerPermit = Semaphore(1)
     futures.forEach {
         it.then {
-            if (winnerChosen.compareAndSet(false, true)) {
+            if (handlerPermit.tryAcquire()) {
                 resultFuture.capture { handler(it) }
             } else if (it.isCancelled) {
                 // Do nothing.
