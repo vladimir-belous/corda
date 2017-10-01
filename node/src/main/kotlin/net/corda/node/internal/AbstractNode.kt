@@ -27,7 +27,6 @@ import net.corda.core.node.CordaPluginRegistry
 import net.corda.core.node.NodeInfo
 import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.*
-import net.corda.core.node.services.NetworkMapCache.MapChange
 import net.corda.core.schemas.MappedSchema
 import net.corda.core.serialization.SerializeAsToken
 import net.corda.core.serialization.SingletonSerializeAsToken
@@ -115,7 +114,8 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
             override val inNodeNetworkMapService: NetworkMapService,
             override val network: MessagingService,
             override val database: CordaPersistence,
-            override val rpcOps: CordaRPCOps) : StartedNode<N>
+            override val rpcOps: CordaRPCOps,
+            override val nodeLookup: NodeLookup) : StartedNode<N>
 
     // TODO: Persist this, as well as whether the node is registered.
     /**
@@ -169,8 +169,8 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
     @Volatile private var _started: StartedNode<AbstractNode>? = null
 
     /** The implementation of the [CordaRPCOps] interface used by this node. */
-    open fun makeRPCOps(): CordaRPCOps {
-        return CordaRPCOpsImpl(services, smm, database)
+    open fun makeRPCOps(nodeLookup: NodeLookup): CordaRPCOps {
+        return CordaRPCOpsImpl(services, smm, database, nodeLookup)
     }
 
     open fun start(): StartedNode<AbstractNode> {
@@ -204,8 +204,8 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
             }
 
             makeVaultObservers()
-
-            val rpcOps = makeRPCOps()
+            val nodeLookup = NodeLookupImpl(_services.identityService, _services.networkMapCache)
+            val rpcOps = makeRPCOps(nodeLookup)
             startMessagingService(rpcOps)
             installCoreFlows()
 
@@ -215,7 +215,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
             registerCustomSchemas(cordappProvider.cordapps.flatMap { it.customSchemas }.toSet())
 
             runOnStop += network::stop
-            StartedNodeImpl(this, _services, info, checkpointStorage, smm, attachments, inNodeNetworkMapService, network, database, rpcOps)
+            StartedNodeImpl(this, _services, info, checkpointStorage, smm, attachments, inNodeNetworkMapService, network, database, rpcOps, nodeLookup)
         }
         // If we successfully  loaded network data from database, we set this future to Unit.
         _nodeReadyFuture.captureLater(registerWithNetworkMapIfConfigured())
@@ -587,17 +587,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         val caCertificates: Array<X509Certificate> = listOf(legalIdentity.certificate, clientCa?.certificate?.cert)
                 .filterNotNull()
                 .toTypedArray()
-        val service = PersistentIdentityService(info.legalIdentitiesAndCerts, trustRoot = trustRoot, caCertificates = *caCertificates)
-        services.networkMapCache.allNodes.forEach { it.legalIdentitiesAndCerts.forEach { service.verifyAndRegisterIdentity(it) } }
-        services.networkMapCache.changed.subscribe { mapChange ->
-            // TODO how should we handle network map removal
-            if (mapChange is MapChange.Added) {
-                mapChange.node.legalIdentitiesAndCerts.forEach {
-                    service.verifyAndRegisterIdentity(it)
-                }
-            }
-        }
-        return service
+        return PersistentIdentityService(info.legalIdentitiesAndCerts, trustRoot = trustRoot, caCertificates = *caCertificates)
     }
 
     protected abstract fun makeTransactionVerifierService(): TransactionVerifierService
@@ -681,7 +671,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         override val monitoringService = MonitoringService(MetricRegistry())
         override val validatedTransactions = makeTransactionStorage()
         override val transactionVerifierService by lazy { makeTransactionVerifierService() }
-        override val networkMapCache by lazy { PersistentNetworkMapCache(this) }
+        override val networkMapCache by lazy { PersistentNetworkMapCache(this@AbstractNode.database) }
         override val vaultService by lazy { NodeVaultService(this, database.hibernateConfig) }
         override val contractUpgradeService by lazy { ContractUpgradeServiceImpl() }
 

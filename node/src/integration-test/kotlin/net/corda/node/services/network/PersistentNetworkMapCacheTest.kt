@@ -50,7 +50,7 @@ class PersistentNetworkMapCacheTest : NodeBasedTest() {
         val alice = startNodesWithPort(listOf(ALICE), noNetworkMap = true)[0]
         val netCache = alice.services.networkMapCache as PersistentNetworkMapCache
         alice.database.transaction {
-            val res = netCache.getNodeByLegalIdentity(alice.info.chooseIdentity())
+            val res = alice.nodeLookup.getNodeByLegalIdentity(alice.info.chooseIdentity())
             assertEquals(alice.info, res)
             val res2 = netCache.getNodeByLegalName(DUMMY_NOTARY.name)
             assertEquals(infos.singleOrNull { DUMMY_NOTARY.name in it.legalIdentitiesAndCerts.map { it.name } }, res2)
