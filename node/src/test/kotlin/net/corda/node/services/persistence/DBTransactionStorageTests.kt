@@ -13,6 +13,7 @@ import net.corda.node.services.schema.HibernateObserver
 import net.corda.node.services.schema.NodeSchemaService
 import net.corda.node.services.transactions.PersistentUniquenessProvider
 import net.corda.node.services.vault.NodeVaultService
+import net.corda.node.services.vault.VaultServiceInternal
 import net.corda.node.utilities.CordaPersistence
 import net.corda.node.utilities.configureDatabase
 import net.corda.testing.*
@@ -41,7 +42,7 @@ class DBTransactionStorageTests : TestDependencyInjectionBase() {
         database.transaction {
 
             services = object : MockServices(BOB_KEY) {
-                override val vaultService: VaultService get() {
+                override val vaultService: VaultServiceInternal get() {
                     val vaultService = NodeVaultService(clock, keyManagementService, stateLoader, database.hibernateConfig)
                     hibernatePersister = HibernateObserver(vaultService.rawUpdates, database.hibernateConfig)
                     return vaultService
@@ -52,7 +53,7 @@ class DBTransactionStorageTests : TestDependencyInjectionBase() {
                         validatedTransactions.addTransaction(stx)
                     }
                     // Refactored to use notifyAll() as we have no other unit test for that method with multiple transactions.
-                    (vaultService as NodeVaultService).notifyAll(txs.map { it.tx })
+                    vaultService.notifyAll(txs.map { it.tx })
                 }
             }
         }
