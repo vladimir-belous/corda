@@ -24,6 +24,7 @@ import net.corda.finance.utils.WorldMapLocation
 import net.corda.node.internal.AbstractNode
 import net.corda.node.internal.StartedNode
 import net.corda.node.services.api.NetworkMapCacheInternal
+import net.corda.node.services.api.SchemaService
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.nodeapi.internal.ServiceType
 import net.corda.node.services.config.NodeConfiguration
@@ -232,7 +233,7 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
         @Suppress("unused") val place: WorldMapLocation get() = findMyLocation()!!
 
         private var dbCloser: (() -> Any?)? = null
-        override fun <T> initialiseDatabasePersistence(insideTransaction: () -> T) = super.initialiseDatabasePersistence {
+        override fun <T> initialiseDatabasePersistence(schemaService: SchemaService, insideTransaction: () -> T) = super.initialiseDatabasePersistence(schemaService) {
             dbCloser = database::close
             insideTransaction()
         }
