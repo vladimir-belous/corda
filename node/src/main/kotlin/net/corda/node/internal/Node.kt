@@ -21,6 +21,7 @@ import net.corda.node.services.RPCUserService
 import net.corda.node.services.RPCUserServiceImpl
 import net.corda.node.services.api.SchemaService
 import net.corda.node.services.api.NetworkMapCacheInternal
+import net.corda.node.services.api.SchemaService
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.config.FullNodeConfiguration
 import net.corda.node.services.messaging.ArtemisMessagingServer

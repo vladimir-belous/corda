@@ -29,6 +29,7 @@ import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.node.services.api.SchemaService
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.nodeapi.internal.ServiceType
+import net.corda.node.services.api.SchemaService
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.identity.PersistentIdentityService
 import net.corda.node.services.keys.E2ETestKeyManagementService
