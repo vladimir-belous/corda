@@ -170,19 +170,38 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         return CordaRPCOpsImpl(services, smm, database, nodeLookup)
     }
 
-    open fun start(): StartedNode<AbstractNode> {
-        require(started == null) { "Node has already been started" }
+    private fun saveOwnNodeInfo() {
+        NodeInfoSerializer().saveToFile(configuration.baseDirectory, info, services.keyManagementService)
+    }
+
+    private fun initCertificate() {
         if (configuration.devMode) {
             log.warn("Corda node is running in dev mode.")
             configuration.configureWithDevSSLCertificate()
         }
         validateKeystore()
+    }
 
+    open fun generateNodeInfo() {
+        check(started == null) { "Node has already been started" }
+        initCertificate()
+        log.info("Generating nodeInfo ...")
+        val schemaService = NodeSchemaService()
+        initialiseDatabasePersistence(schemaService) {
+            makeServices(schemaService)
+            saveOwnNodeInfo()
+        }
+    }
+
+    open fun start(): StartedNode<AbstractNode> {
+        check(started == null) { "Node has already been started" }
+        initCertificate()
         log.info("Node starting up ...")
         val schemaService = NodeSchemaService()
         // Do all of this in a database transaction so anything that might need a connection has one.
         val startedImpl = initialiseDatabasePersistence(schemaService) {
             val tokenizableServices = makeServices(schemaService)
+            saveOwnNodeInfo()
             smm = StateMachineManager(services,
                     checkpointStorage,
                     serverThread,
@@ -671,7 +690,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         override val auditService = DummyAuditService()
         override val monitoringService = MonitoringService(MetricRegistry())
         override val transactionVerifierService by lazy { makeTransactionVerifierService() }
-        override val networkMapCache by lazy { PersistentNetworkMapCache(this@AbstractNode.database) }
+        override val networkMapCache by lazy { PersistentNetworkMapCache(this@AbstractNode.database, this@AbstractNode.configuration) }
         override val vaultService by lazy { NodeVaultService(platformClock, keyManagementService, stateLoader, this@AbstractNode.database.hibernateConfig) }
         override val contractUpgradeService by lazy { ContractUpgradeServiceImpl() }
 
