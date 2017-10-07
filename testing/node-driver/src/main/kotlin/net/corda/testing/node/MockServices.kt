@@ -109,7 +109,7 @@ open class MockServices(
             val dataSourceProps = makeTestDataSourceProperties()
             val databaseProperties = makeTestDatabaseProperties()
             val identityServiceRef: IdentityService by lazy { createIdentityService() }
-            val database = configureDatabase(dataSourceProps, databaseProperties, NodeSchemaService(customSchemas), { identityServiceRef })
+            val database = configureDatabase(dataSourceProps, databaseProperties, { identityServiceRef }, NodeSchemaService(customSchemas))
             val mockService = database.transaction {
                 object : MockServices(cordappPackages, *(keys.toTypedArray())) {
                     override val identityService: IdentityService = database.transaction { identityServiceRef }
@@ -159,12 +159,12 @@ open class MockServices(
         return NodeInfo(emptyList(), listOf(identity), 1,  serial = 1L)
     }
     override val transactionVerifierService: TransactionVerifierService get() = InMemoryTransactionVerifierService(2)
-    val mockCordappProvider: MockCordappProvider = MockCordappProvider(CordappLoader.createWithTestPackages(cordappPackages + CordappLoader.testPackages)).start(attachments) as MockCordappProvider
+    val mockCordappProvider = MockCordappProvider(CordappLoader.createWithTestPackages(cordappPackages + CordappLoader.testPackages), attachments)
     override val cordappProvider: CordappProvider = mockCordappProvider
 
     lateinit var hibernatePersister: HibernateObserver
 
-    fun makeVaultService(hibernateConfig: HibernateConfiguration = HibernateConfiguration(NodeSchemaService(), makeTestDatabaseProperties(), { identityService })): VaultServiceInternal {
+    fun makeVaultService(hibernateConfig: HibernateConfiguration): VaultServiceInternal {
         val vaultService = NodeVaultService(Clock.systemUTC(), keyManagementService, stateLoader, hibernateConfig)
         hibernatePersister = HibernateObserver(vaultService.rawUpdates, hibernateConfig)
         return vaultService
