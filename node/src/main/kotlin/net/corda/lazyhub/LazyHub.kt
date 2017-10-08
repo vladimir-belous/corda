@@ -10,12 +10,10 @@ import java.lang.reflect.TypeVariable
 import java.util.*
 import java.util.stream.Stream
 import kotlin.collections.LinkedHashMap
-import kotlin.reflect.KClass
-import kotlin.reflect.KFunction
-import kotlin.reflect.KParameter
-import kotlin.reflect.KType
+import kotlin.reflect.*
 import kotlin.reflect.jvm.internal.ReflectProperties
 import kotlin.reflect.jvm.isAccessible
+import kotlin.streams.toList
 
 private fun <T> Stream<T>.toTypedArray(ct: Class<T>): Array<T> = toArray { n -> uncheckedCast<Any, Array<T?>>(java.lang.reflect.Array.newInstance(ct, n)) }
 private fun <K, V> Stream<Pair<K, V>>.toMap() = collect<LinkedHashMap<K, V>>(::LinkedHashMap, { m, (k, v) -> m.put(k, v) }, { _, _ -> throw UnsupportedOperationException() })
@@ -48,7 +46,7 @@ open class LazyHubException(message: String) : Exception(message)
 class NoSuchProviderException(clazz: Class<*>) : LazyHubException(clazz.toString())
 class TooManyProvidersException(clazz: Class<*>) : LazyHubException(clazz.toString())
 class UnsatisfiableParamException(message: String) : LazyHubException(message)
-
+class NoPublicConstructorsException(message: String) : LazyHubException(message)
 interface LazyHubFactory {
     fun child(): MutableLazyHub
 }
@@ -144,6 +142,33 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
             (supplier ?: param.unsatisfiableHandler(function, param))?.let { Pair(param, it) }
         }
     }
+
+    internal fun <C : Any, P : Param> greediestSatisfiableConstructor(type: Any, constructors: Stream<C>, getParams: (C) -> List<P>) = run {
+        var fail: UnsatisfiableParamException? = null
+        val satisfiable = constructors.map { constructor ->
+            val params = getParams(constructor)
+            try {
+                Pair(constructor, argSuppliers(constructor, params))
+            } catch (e: UnsatisfiableParamException) {
+                fail?.addSuppressed(e) ?: run { fail = e }
+                null
+            }
+        }.nonNull().toList()
+        satisfiable.isEmpty() && throw fail ?: NoPublicConstructorsException("No public constructors: $type")
+        fun Pair<*, List<Pair<*, ArgSupplier>>>.providerCount() = second.stream().filter { (_, supplier) -> supplier.provider != null }.count()
+        val greediest = mutableListOf(satisfiable[0])
+        var providerCount = greediest[0].providerCount()
+        satisfiable.stream().skip(1).forEach next@ {
+            val pc = it.providerCount()
+            if (pc < providerCount) return@next
+            if (pc > providerCount) {
+                greediest.clear()
+                providerCount = pc
+            }
+            greediest += it
+        }
+        greediest.single()
+    }
 }
 
 /** Like [Provider] but capable of supplying null. */
@@ -175,41 +200,19 @@ private fun <T> arrayProvider(type: Class<Array<T>>, componentType: Class<T>, pr
 }
 
 private fun <T : Any> kImplProvider(container: LazyHubImpl, type: KClass<T>) = LazyProvider(type.java) {
-    var fail: UnsatisfiableParamException? = null
-    val satisfiable = type.constructors.mapNotNull { constructor ->
-        val params = constructor.parameters.map(::KParam)
-        try {
-            Pair(constructor, container.argSuppliers(constructor, params))
-        } catch (e: UnsatisfiableParamException) {
-            fail?.addSuppressed(e) ?: run { fail = e }
-            null
-        }
-    }
-    satisfiable.isEmpty() && throw fail!!
-    satisfiable.single().let { (constructor, argSuppliers) ->
-        constructor.callBy(argSuppliers.stream().map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
-    }
+    val (constructor, argSuppliers) = container.greediestSatisfiableConstructor(
+            type,
+            type.constructors.stream().filter { it.visibility == KVisibility.PUBLIC },
+            { it.parameters.map(::KParam) })
+    constructor.callBy(argSuppliers.stream().map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
 }
 
 private fun <T> jImplProvider(container: LazyHubImpl, type: Class<T>) = LazyProvider(type) {
-    var fail: UnsatisfiableParamException? = null
-    val satisfiable = uncheckedCast<Any, Array<Constructor<T>>>(type.constructors).mapNotNull { constructor ->
-        val params = constructor.parameterTypes.map(::JParam)
-        try {
-            Pair(constructor, container.argSuppliers(constructor, params))
-        } catch (e: UnsatisfiableParamException) {
-            fail?.addSuppressed(e) ?: run { fail = e }
-            null
-        }
-    }
-    satisfiable.isEmpty() && throw fail!!
-    satisfiable.sortedBy { (_, args) ->
-        args.stream().filter { (_, supplier) ->
-            supplier.provider != null
-        }.count()
-    }.last().let { (constructor, argSuppliers) ->
-        constructor.newInstance(*argSuppliers.stream().map { (_, supplier) -> supplier() }.toTypedArray())
-    }
+    val (constructor, argSuppliers) = container.greediestSatisfiableConstructor(
+            type,
+            Arrays.stream<Constructor<T>>(uncheckedCast(type.constructors)),
+            { it.parameterTypes.map(::JParam) })
+    constructor.newInstance(*argSuppliers.stream().map { (_, supplier) -> supplier() }.toTypedArray())
 }
 private typealias UnsatisfiableParamHandler = (Any, Param) -> ArgSupplier?
 private val forgetAboutIt: UnsatisfiableParamHandler = { function, param -> throw UnsatisfiableParamException("Unsatisfiable param $param in function: $function") }

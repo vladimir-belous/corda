@@ -1,6 +1,6 @@
+package net.corda.lazyhub
+
 import net.corda.core.internal.uncheckedCast
-import net.corda.lazyhub.NoSuchProviderException
-import net.corda.lazyhub.lazyHub
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -112,5 +112,19 @@ class LazyHubTests {
         lh.obj(34)
         lh.factory(this::spread6)
         assertEquals("null1234", lh[String::class])
+    }
+
+    open class NoPublicConstructor protected constructor()
+
+    @Test
+    fun `no public constructor kotlin`() {
+        lh.impl(NoPublicConstructor::class)
+        assertThatThrownBy { lh[NoPublicConstructor::class] }.isInstanceOf(NoPublicConstructorsException::class.java)
+    }
+
+    @Test
+    fun `no public constructor java`() {
+        lh.impl(NoPublicConstructor::class.java)
+        assertThatThrownBy { lh[NoPublicConstructor::class] }.isInstanceOf(NoPublicConstructorsException::class.java)
     }
 }
