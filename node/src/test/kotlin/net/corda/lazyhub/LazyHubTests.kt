@@ -127,4 +127,22 @@ class LazyHubTests {
         lh.impl(NoPublicConstructor::class.java)
         assertThatThrownBy { lh[NoPublicConstructor::class] }.isInstanceOf(NoPublicConstructorsException::class.java)
     }
+
+    private fun primitiveInt() = 1
+    class IntConsumer(@Suppress("UNUSED_PARAMETER") i: Int)
+    class IntegerConsumer(@Suppress("UNUSED_PARAMETER") i: Int?)
+
+    @Test
+    fun `boxed satisfies primitive`() {
+        lh.obj(1)
+        lh.impl(IntConsumer::class)
+        lh[IntConsumer::class]
+    }
+
+    @Test
+    fun `primitive satisfies boxed`() {
+        lh.factory(this::primitiveInt)
+        lh.impl(IntegerConsumer::class.java)
+        lh[IntegerConsumer::class]
+    }
 }

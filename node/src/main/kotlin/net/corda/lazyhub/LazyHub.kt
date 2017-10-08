@@ -75,6 +75,10 @@ private infix fun Class<*>.satisfiedBy(clazz: Class<*>): Boolean {
     return isAssignableFrom(clazz) || conjugate() == clazz
 }
 
+private fun <T> KFunction<T>.callWith(argSuppliers: List<Pair<KParam, ArgSupplier>>): T {
+    return callBy(argSuppliers.stream().map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
+}
+
 private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
     private val providers = mutableMapOf<Class<*>, MutableList<Provider<*>>>()
     private fun add(seen: MutableSet<Class<*>>, type: Class<*>, provider: Provider<*>) {
@@ -99,9 +103,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
     override fun <T> factory(factory: KFunction<T>) {
         factory.isAccessible = true
         val params = factory.parameters.map(::KParam)
-        add(LazyProvider(uncheckedCast(factory.returnType.toClass())) {
-            factory.callBy(argSuppliers(factory, params).map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
-        })
+        add(LazyProvider(uncheckedCast(factory.returnType.toClass())) { factory.callWith(argSuppliers(factory, params)) })
     }
 
     internal fun <P : Param> argSuppliers(function: Any, params: List<P>) = run {
@@ -204,7 +206,7 @@ private fun <T : Any> kImplProvider(container: LazyHubImpl, type: KClass<T>) = L
             type,
             type.constructors.stream().filter { it.visibility == KVisibility.PUBLIC },
             { it.parameters.map(::KParam) })
-    constructor.callBy(argSuppliers.stream().map { (param, supplier) -> Pair(param.kParam, supplier()) }.toMap())
+    constructor.callWith(argSuppliers)
 }
 
 private fun <T> jImplProvider(container: LazyHubImpl, type: Class<T>) = LazyProvider(type) {
