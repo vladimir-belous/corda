@@ -1,6 +1,7 @@
 package net.corda.node
 
 import co.paralleluniverse.fibers.Suspendable
+import net.corda.client.rpc.PermissionException
 import net.corda.core.contracts.Amount
 import net.corda.core.contracts.ContractState
 import net.corda.core.contracts.Issued
@@ -24,14 +25,12 @@ import net.corda.finance.flows.CashIssueFlow
 import net.corda.finance.flows.CashPaymentFlow
 import net.corda.node.internal.CordaRPCOpsImpl
 import net.corda.node.internal.StartedNode
+import net.corda.node.services.FlowPermissions.Companion.startFlowPermission
 import net.corda.node.services.messaging.CURRENT_RPC_CONTEXT
 import net.corda.node.services.messaging.RpcContext
-import net.corda.node.services.network.NetworkMapService
-import net.corda.node.services.FlowPermissions.Companion.startFlowPermission
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.transactions.SimpleNotaryService
-import net.corda.client.rpc.PermissionException
 import net.corda.nodeapi.User
+import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
 import net.corda.testing.node.MockNetwork
 import net.corda.testing.node.MockNetwork.MockNode
@@ -68,9 +67,8 @@ class CordaRPCOpsImplTest {
         setCordappPackages("net.corda.finance.contracts.asset")
 
         mockNet = MockNetwork()
-        val networkMap = mockNet.createNode(advertisedServices = ServiceInfo(NetworkMapService.type))
-        aliceNode = mockNet.createNode(networkMapAddress = networkMap.network.myAddress)
-        notaryNode = mockNet.createNode(advertisedServices = ServiceInfo(SimpleNotaryService.type), networkMapAddress = networkMap.network.myAddress)
+        aliceNode = mockNet.createNode()
+        notaryNode = mockNet.createNode(advertisedServices = ServiceInfo(SimpleNotaryService.type))
         rpc = CordaRPCOpsImpl(aliceNode.services, aliceNode.smm, aliceNode.database)
         CURRENT_RPC_CONTEXT.set(RpcContext(User("user", "pwd", permissions = setOf(
                 startFlowPermission<CashIssueFlow>(),
@@ -78,7 +76,7 @@ class CordaRPCOpsImplTest {
         ))))
 
         mockNet.runNetwork()
-        networkMap.internals.ensureRegistered()
+        mockNet.networkMapNode.internals.ensureRegistered()
         notary = rpc.notaryIdentities().first()
     }
 

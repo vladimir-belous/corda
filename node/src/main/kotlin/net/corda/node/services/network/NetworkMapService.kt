@@ -19,10 +19,10 @@ import net.corda.core.serialization.deserialize
 import net.corda.core.serialization.serialize
 import net.corda.core.utilities.debug
 import net.corda.core.utilities.loggerFor
-import net.corda.nodeapi.internal.ServiceType
 import net.corda.node.services.api.AbstractNodeService
-import net.corda.node.services.api.ServiceHubInternal
+import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.node.services.messaging.MessageHandlerRegistration
+import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.messaging.ServiceRequestMessage
 import net.corda.node.services.messaging.createMessage
 import net.corda.node.services.network.NetworkMapService.*
@@ -72,8 +72,6 @@ interface NetworkMapService {
         const val PUSH_TOPIC = "platform.network_map.push"
         // Base topic for messages acknowledging pushed updates
         const val PUSH_ACK_TOPIC = "platform.network_map.push_ack"
-
-        val type = ServiceType.networkMap
     }
 
     data class FetchMapRequest(val subscribe: Boolean,
@@ -117,8 +115,8 @@ interface NetworkMapService {
 object NullNetworkMapService : NetworkMapService
 
 @ThreadSafe
-class InMemoryNetworkMapService(services: ServiceHubInternal, minimumPlatformVersion: Int)
-    : AbstractNetworkMapService(services, minimumPlatformVersion) {
+class InMemoryNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal, minimumPlatformVersion: Int)
+    : AbstractNetworkMapService(network, networkMapCache, minimumPlatformVersion) {
 
     override val nodeRegistrations: MutableMap<PartyAndCertificate, NodeRegistrationInfo> = ConcurrentHashMap()
     override val subscribers = ThreadBox(mutableMapOf<SingleMessageRecipient, LastAcknowledgeInfo>())
@@ -135,8 +133,9 @@ class InMemoryNetworkMapService(services: ServiceHubInternal, minimumPlatformVer
  * subscriber clean up and is simpler to persist than the previous implementation based on a set of missing messages acks.
  */
 @ThreadSafe
-abstract class AbstractNetworkMapService(services: ServiceHubInternal,
-                                         val minimumPlatformVersion: Int) : NetworkMapService, AbstractNodeService(services) {
+abstract class AbstractNetworkMapService(network: MessagingService,
+                                         private val networkMapCache: NetworkMapCacheInternal,
+                                         private val minimumPlatformVersion: Int) : NetworkMapService, AbstractNodeService(network) {
     companion object {
         /**
          * Maximum credible size for a registration request. Generally requests are around 2000-6000 bytes, so this gives a
@@ -161,14 +160,6 @@ abstract class AbstractNetworkMapService(services: ServiceHubInternal,
     val maxUnacknowledgedUpdates = 10
 
     private val handlers = ArrayList<MessageHandlerRegistration>()
-
-    init {
-        require(minimumPlatformVersion >= 1) { "minimumPlatformVersion cannot be less than 1" }
-        require(minimumPlatformVersion <= services.myInfo.platformVersion) {
-            "minimumPlatformVersion cannot be greater than the node's own version"
-        }
-    }
-
     protected fun setup() {
         // Register message handlers
         handlers += addMessageHandler(FETCH_TOPIC) { req: FetchMapRequest -> processFetchAllRequest(req) }
@@ -203,7 +194,7 @@ abstract class AbstractNetworkMapService(services: ServiceHubInternal,
         subscribers.locked { remove(subscriber) }
     }
 
-    private fun processAcknowledge(request: UpdateAcknowledge): Unit {
+    private fun processAcknowledge(request: UpdateAcknowledge) {
         if (request.replyTo !is SingleMessageRecipient) throw NodeMapException.InvalidSubscriber()
         subscribers.locked {
             val lastVersionAcked = this[request.replyTo]?.mapVersion
@@ -283,11 +274,11 @@ abstract class AbstractNetworkMapService(services: ServiceHubInternal,
         when (change.type) {
             ADD -> {
                 logger.info("Added node ${node.addresses} to network map")
-                services.networkMapCache.addNode(change.node)
+                networkMapCache.addNode(change.node)
             }
             REMOVE -> {
                 logger.info("Removed node ${node.addresses} from network map")
-                services.networkMapCache.removeNode(change.node)
+                networkMapCache.removeNode(change.node)
             }
         }
 

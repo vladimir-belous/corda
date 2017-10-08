@@ -8,7 +8,9 @@ import io.github.lukehutch.fastclasspathscanner.scanner.ScanResult;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.tasks.CompileClasspath;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputFiles;
 import org.gradle.api.tasks.TaskAction;
 
@@ -34,6 +36,13 @@ public class ScanApi extends DefaultTask {
     private static final int FIELD_MASK = Modifier.fieldModifiers();
     private static final int VISIBILITY_MASK = Modifier.PUBLIC | Modifier.PROTECTED;
 
+    private static final Set<String> ANNOTATION_BLACKLIST;
+    static {
+       Set<String> blacklist = new LinkedHashSet<>();
+       blacklist.add("kotlin.jvm.JvmOverloads");
+       ANNOTATION_BLACKLIST = unmodifiableSet(blacklist);
+    }
+
     /**
      * This information has been lifted from:
      * @link <a href="https://github.com/JetBrains/kotlin/blob/master/core/runtime.jvm/src/kotlin/Metadata.kt">Metadata.kt</a>
@@ -55,7 +64,7 @@ public class ScanApi extends DefaultTask {
         outputDir = new File(getProject().getBuildDir(), "api");
     }
 
-    @Input
+    @InputFiles
     public FileCollection getSources() {
         return sources;
     }
@@ -64,7 +73,8 @@ public class ScanApi extends DefaultTask {
         this.sources.setFrom(sources);
     }
 
-    @Input
+    @CompileClasspath
+    @InputFiles
     public FileCollection getClasspath() {
         return classpath;
     }
@@ -106,16 +116,12 @@ public class ScanApi extends DefaultTask {
 
     @TaskAction
     public void scan() {
-        if (outputDir.isDirectory() || outputDir.mkdirs()) {
-            try (Scanner scanner = new Scanner(classpath)) {
-                for (File source : sources) {
-                    scanner.scan(source);
-                }
-            } catch (IOException e) {
-                getLogger().error("Failed to write API file", e);
+        try (Scanner scanner = new Scanner(classpath)) {
+            for (File source : sources) {
+                scanner.scan(source);
             }
-        } else {
-            getLogger().error("Cannot create directory '{}'", outputDir.getAbsolutePath());
+        } catch (IOException e) {
+            getLogger().error("Failed to write API file", e);
         }
     }
 
@@ -252,7 +258,7 @@ public class ScanApi extends DefaultTask {
                 if (isVisible(method.getAccessFlags()) // Only public and protected methods
                         && isValid(method.getAccessFlags(), METHOD_MASK) // Excludes bridge and synthetic methods
                         && !isKotlinInternalScope(method)) {
-                    writer.append("  ").println(method);
+                    writer.append("  ").println(filterAnnotationsFor(method));
                 }
             }
         }
@@ -279,6 +285,22 @@ public class ScanApi extends DefaultTask {
             }
             return 0;
         }
+
+        private MethodInfo filterAnnotationsFor(MethodInfo method) {
+            return new MethodInfo(
+                method.getClassName(),
+                method.getMethodName(),
+                method.getAccessFlags(),
+                method.getTypeDescriptor(),
+                method.getAnnotationNames().stream()
+                    .filter(ScanApi::isVisibleAnnotation)
+                    .collect(toList())
+            );
+        }
+    }
+
+    private static boolean isVisibleAnnotation(String annotationName) {
+        return !ANNOTATION_BLACKLIST.contains(annotationName);
     }
 
     private static boolean isKotlinInternalScope(MethodInfo method) {

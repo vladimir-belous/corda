@@ -2,10 +2,8 @@ package net.corda.node.services.network
 
 import net.corda.core.node.services.NetworkMapCache
 import net.corda.core.utilities.getOrThrow
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.ALICE
 import net.corda.testing.BOB
-import net.corda.testing.DUMMY_NOTARY
 import net.corda.testing.chooseIdentity
 import net.corda.testing.node.MockNetwork
 import org.assertj.core.api.Assertions.assertThat
@@ -30,9 +28,9 @@ class NetworkMapCacheTest {
 
     @Test
     fun registerWithNetwork() {
-        val mapNode = mockNet.createNotaryNode()
-        val aliceNode = mockNet.createPartyNode(mapNode.network.myAddress, ALICE.name)
-        val future = aliceNode.services.networkMapCache.addMapService(aliceNode.network, mapNode.network.myAddress, false, null)
+        mockNet.createNotaryNode()
+        val aliceNode = mockNet.createPartyNode(ALICE.name)
+        val future = aliceNode.services.networkMapCache.addMapService(aliceNode.network, mockNet.networkMapNode.network.myAddress, false, null)
         mockNet.runNetwork()
         future.getOrThrow()
     }
@@ -40,14 +38,13 @@ class NetworkMapCacheTest {
     @Test
     fun `key collision`() {
         val entropy = BigInteger.valueOf(24012017L)
-        val aliceNode = mockNet.createNode(nodeFactory = MockNetwork.DefaultFactory, legalName = ALICE.name, entropyRoot = entropy, advertisedServices = ServiceInfo(NetworkMapService.type))
-        val bobNode = mockNet.createNode(nodeFactory = MockNetwork.DefaultFactory, legalName = BOB.name, entropyRoot = entropy, advertisedServices = ServiceInfo(NetworkMapService.type))
-        assertEquals(aliceNode.info.chooseIdentity(), bobNode.info.chooseIdentity())
-
+        val aliceNode = mockNet.createNode(nodeFactory = MockNetwork.DefaultFactory, legalName = ALICE.name, entropyRoot = entropy)
         mockNet.runNetwork()
 
         // Node A currently knows only about itself, so this returns node A
         assertEquals(aliceNode.services.networkMapCache.getNodesByLegalIdentityKey(aliceNode.info.chooseIdentity().owningKey).singleOrNull(), aliceNode.info)
+        val bobNode = mockNet.createNode(nodeFactory = MockNetwork.DefaultFactory, legalName = BOB.name, entropyRoot = entropy)
+        assertEquals(aliceNode.info.chooseIdentity(), bobNode.info.chooseIdentity())
 
         aliceNode.services.networkMapCache.addNode(bobNode.info)
         // The details of node B write over those for node A
@@ -57,7 +54,7 @@ class NetworkMapCacheTest {
     @Test
     fun `getNodeByLegalIdentity`() {
         val notaryNode = mockNet.createNotaryNode()
-        val aliceNode = mockNet.createPartyNode(notaryNode.network.myAddress, ALICE.name)
+        val aliceNode = mockNet.createPartyNode(ALICE.name)
         val notaryCache: NetworkMapCache = notaryNode.services.networkMapCache
         val expected = aliceNode.info
 
@@ -69,9 +66,21 @@ class NetworkMapCacheTest {
     }
 
     @Test
+    fun `getPeerByLegalName`() {
+        val notaryNode = mockNet.createNotaryNode()
+        val aliceNode = mockNet.createPartyNode(ALICE.name)
+        val notaryCache: NetworkMapCache = notaryNode.services.networkMapCache
+        val expected = aliceNode.info.legalIdentities.single()
+
+        mockNet.runNetwork()
+        val actual = notaryNode.database.transaction { notaryCache.getPeerByLegalName(ALICE.name) }
+        assertEquals(expected, actual)
+    }
+
+    @Test
     fun `remove node from cache`() {
         val notaryNode = mockNet.createNotaryNode()
-        val aliceNode = mockNet.createPartyNode(notaryNode.network.myAddress, ALICE.name)
+        val aliceNode = mockNet.createPartyNode(ALICE.name)
         val notaryLegalIdentity = notaryNode.info.chooseIdentity()
         val alice = aliceNode.info.chooseIdentity()
         val notaryCache = notaryNode.services.networkMapCache as PersistentNetworkMapCache

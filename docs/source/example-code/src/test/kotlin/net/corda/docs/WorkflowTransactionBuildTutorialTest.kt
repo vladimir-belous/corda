@@ -9,7 +9,6 @@ import net.corda.core.node.services.vault.QueryCriteria
 import net.corda.core.toFuture
 import net.corda.core.utilities.getOrThrow
 import net.corda.node.internal.StartedNode
-import net.corda.node.services.network.NetworkMapService
 import net.corda.node.services.transactions.ValidatingNotaryService
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
@@ -21,7 +20,6 @@ import kotlin.test.assertEquals
 
 class WorkflowTransactionBuildTutorialTest {
     lateinit var mockNet: MockNetwork
-    lateinit var notaryNode: StartedNode<MockNetwork.MockNode>
     lateinit var nodeA: StartedNode<MockNetwork.MockNode>
     lateinit var nodeB: StartedNode<MockNetwork.MockNode>
 
@@ -36,12 +34,12 @@ class WorkflowTransactionBuildTutorialTest {
         setCordappPackages("net.corda.docs")
         mockNet = MockNetwork(threadPerNode = true)
         val notaryService = ServiceInfo(ValidatingNotaryService.type)
-        notaryNode = mockNet.createNode(
+        mockNet.createNode(
                 legalName = DUMMY_NOTARY.name,
-                overrideServices = mapOf(Pair(notaryService, DUMMY_NOTARY_KEY)),
-                advertisedServices = *arrayOf(ServiceInfo(NetworkMapService.type), notaryService))
-        nodeA = mockNet.createPartyNode(notaryNode.network.myAddress)
-        nodeB = mockNet.createPartyNode(notaryNode.network.myAddress)
+                notaryIdentity = Pair(notaryService, DUMMY_NOTARY_KEY),
+                advertisedServices = *arrayOf(notaryService))
+        nodeA = mockNet.createPartyNode()
+        nodeB = mockNet.createPartyNode()
         nodeA.internals.registerInitiatedFlow(RecordCompletionFlow::class.java)
     }
 

@@ -4,7 +4,7 @@ buildscript {
     file("$projectDir/constants.properties").withInputStream { constants.load(it) }
 
     // Our version: bump this on release.
-    ext.corda_release_version = "0.16-SNAPSHOT"
+    ext.corda_release_version = "1.1-SNAPSHOT"
     // Increment this on any release that changes public APIs anywhere in the Corda platform
     // TODO This is going to be difficult until we have a clear separation throughout the code of what is public and what is internal
     ext.corda_platform_version = 1
@@ -27,7 +27,6 @@ buildscript {
     ext.jersey_version = '2.25'
     ext.jolokia_version = '2.0.0-M3'
     ext.assertj_version = '3.6.1'
-    ext.kotlintest_version = '2.0.5'
     ext.slf4j_version = '1.7.25'
     ext.log4j_version = '2.7'
     ext.bouncycastle_version = constants.getProperty("bouncycastleVersion")
@@ -41,7 +40,7 @@ buildscript {
     ext.jopt_simple_version = '5.0.2'
     ext.jansi_version = '1.14'
     ext.hibernate_version = '5.2.6.Final'
-    ext.h2_version = '1.4.194'
+    ext.h2_version = '1.4.194' // Update docs if renamed or removed.
     ext.rxjava_version = '1.2.4'
     ext.dokka_version = '0.9.14'
     ext.eddsa_version = '0.2.0'
@@ -117,12 +116,14 @@ allprojects {
         }
     }
 
-    tasks.withType(Jar) { // Includes War and Ear
+    tasks.withType(Jar) { task ->
+        // Includes War and Ear
         manifest {
             attributes('Corda-Release-Version': corda_release_version)
             attributes('Corda-Platform-Version': corda_platform_version)
             attributes('Corda-Revision': corda_revision)
             attributes('Corda-Vendor': 'Corda Open Source')
+            attributes('Automatic-Module-Name': "net.corda.${task.project.name.replaceAll('-', '.')}")
         }
     }
 

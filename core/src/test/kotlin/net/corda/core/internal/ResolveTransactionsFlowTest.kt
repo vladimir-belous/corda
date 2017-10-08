@@ -24,6 +24,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
+// DOCSTART 3
 class ResolveTransactionsFlowTest {
     lateinit var mockNet: MockNetwork
     lateinit var notaryNode: StartedNode<MockNetwork.MockNode>
@@ -38,8 +39,8 @@ class ResolveTransactionsFlowTest {
         setCordappPackages("net.corda.testing.contracts")
         mockNet = MockNetwork()
         notaryNode = mockNet.createNotaryNode()
-        megaCorpNode = mockNet.createPartyNode(notaryNode.network.myAddress, MEGA_CORP.name)
-        miniCorpNode = mockNet.createPartyNode(notaryNode.network.myAddress, MINI_CORP.name)
+        megaCorpNode = mockNet.createPartyNode(MEGA_CORP.name)
+        miniCorpNode = mockNet.createPartyNode(MINI_CORP.name)
         megaCorpNode.internals.registerInitiatedFlow(TestResponseFlow::class.java)
         miniCorpNode.internals.registerInitiatedFlow(TestResponseFlow::class.java)
         mockNet.runNetwork()
@@ -53,6 +54,8 @@ class ResolveTransactionsFlowTest {
         mockNet.stopNodes()
         unsetCordappPackages()
     }
+// DOCEND 3
+
 
     // DOCSTART 1
     @Test

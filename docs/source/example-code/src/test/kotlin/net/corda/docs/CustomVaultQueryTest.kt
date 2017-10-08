@@ -7,11 +7,10 @@ import net.corda.core.utilities.getOrThrow
 import net.corda.finance.*
 import net.corda.finance.contracts.getCashBalances
 import net.corda.finance.flows.CashIssueFlow
-import net.corda.node.internal.StartedNode
 import net.corda.finance.schemas.CashSchemaV1
-import net.corda.nodeapi.internal.ServiceInfo
-import net.corda.node.services.network.NetworkMapService
+import net.corda.node.internal.StartedNode
 import net.corda.node.services.transactions.ValidatingNotaryService
+import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
 import net.corda.testing.node.MockNetwork
 import org.junit.After
@@ -23,7 +22,6 @@ import java.util.*
 class CustomVaultQueryTest {
 
     lateinit var mockNet: MockNetwork
-    lateinit var notaryNode: StartedNode<MockNetwork.MockNode>
     lateinit var nodeA: StartedNode<MockNetwork.MockNode>
     lateinit var nodeB: StartedNode<MockNetwork.MockNode>
     lateinit var notary: Party
@@ -33,12 +31,12 @@ class CustomVaultQueryTest {
         setCordappPackages("net.corda.finance.contracts.asset")
         mockNet = MockNetwork(threadPerNode = true)
         val notaryService = ServiceInfo(ValidatingNotaryService.type)
-        notaryNode = mockNet.createNode(
+        mockNet.createNode(
                 legalName = DUMMY_NOTARY.name,
-                overrideServices = mapOf(notaryService to DUMMY_NOTARY_KEY),
-                advertisedServices = *arrayOf(ServiceInfo(NetworkMapService.type), notaryService))
-        nodeA = mockNet.createPartyNode(notaryNode.network.myAddress)
-        nodeB = mockNet.createPartyNode(notaryNode.network.myAddress)
+                notaryIdentity = notaryService to DUMMY_NOTARY_KEY,
+                advertisedServices = *arrayOf(notaryService))
+        nodeA = mockNet.createPartyNode()
+        nodeB = mockNet.createPartyNode()
 
         nodeA.internals.registerInitiatedFlow(TopupIssuerFlow.TopupIssuer::class.java)
         nodeA.internals.installCordaService(CustomVaultQuery.Service::class.java)

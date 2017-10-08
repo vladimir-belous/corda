@@ -14,11 +14,10 @@ import net.corda.core.utilities.getOrThrow
 import net.corda.core.utilities.unwrap
 import net.corda.node.internal.InitiatedFlowFactory
 import net.corda.node.internal.StartedNode
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.config.NodeConfiguration
-import net.corda.node.services.network.NetworkMapService
 import net.corda.node.services.persistence.NodeAttachmentService
 import net.corda.node.utilities.DatabaseTransactionManager
+import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.chooseIdentity
 import net.corda.testing.node.MockNetwork
 import org.junit.After
@@ -70,8 +69,8 @@ class AttachmentSerializationTest {
     @Before
     fun setUp() {
         mockNet = MockNetwork()
-        server = mockNet.createNode(advertisedServices = ServiceInfo(NetworkMapService.type))
-        client = mockNet.createNode(server.network.myAddress)
+        server = mockNet.createNode()
+        client = mockNet.createNode()
         client.internals.disableDBCloseOnStop() // Otherwise the in-memory database may disappear (taking the checkpoint with it) while we reboot the client.
         mockNet.runNetwork()
         server.internals.ensureRegistered()
@@ -160,11 +159,11 @@ class AttachmentSerializationTest {
 
     private fun rebootClientAndGetAttachmentContent(checkAttachmentsOnLoad: Boolean = true): String {
         client.dispose()
-        client = mockNet.createNode(server.network.myAddress, client.internals.id, object : MockNetwork.Factory<MockNetwork.MockNode> {
+        client = mockNet.createNode(client.internals.id, object : MockNetwork.Factory<MockNetwork.MockNode> {
             override fun create(config: NodeConfiguration, network: MockNetwork, networkMapAddr: SingleMessageRecipient?,
-                                advertisedServices: Set<ServiceInfo>, id: Int, overrideServices: Map<ServiceInfo, KeyPair>?,
+                                advertisedServices: Set<ServiceInfo>, id: Int, notaryIdentity: Pair<ServiceInfo, KeyPair>?,
                                 entropyRoot: BigInteger): MockNetwork.MockNode {
-                return object : MockNetwork.MockNode(config, network, networkMapAddr, advertisedServices, id, overrideServices, entropyRoot) {
+                return object : MockNetwork.MockNode(config, network, networkMapAddr, advertisedServices, id, notaryIdentity, entropyRoot) {
                     override fun start() = super.start().apply { attachments.checkAttachmentsOnLoad = checkAttachmentsOnLoad }
                 }
             }

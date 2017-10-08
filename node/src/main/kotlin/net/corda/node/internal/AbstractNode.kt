@@ -20,20 +20,20 @@ import net.corda.core.internal.concurrent.flatMap
 import net.corda.core.internal.concurrent.openFuture
 import net.corda.core.internal.toX509CertHolder
 import net.corda.core.internal.uncheckedCast
-import net.corda.core.messaging.CordaRPCOps
-import net.corda.core.messaging.RPCOps
-import net.corda.core.messaging.SingleMessageRecipient
-import net.corda.core.node.CordaPluginRegistry
+import net.corda.core.messaging.*
+import net.corda.core.node.AppServiceHub
 import net.corda.core.node.NodeInfo
 import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.*
 import net.corda.core.node.services.NetworkMapCache.MapChange
 import net.corda.core.schemas.MappedSchema
+import net.corda.core.serialization.SerializationWhitelist
 import net.corda.core.serialization.SerializeAsToken
 import net.corda.core.serialization.SingletonSerializeAsToken
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.NetworkHostAndPort
 import net.corda.core.utilities.debug
+import net.corda.node.VersionInfo
 import net.corda.node.internal.classloading.requireAnnotation
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.internal.cordapp.CordappProviderImpl
@@ -58,10 +58,7 @@ import net.corda.node.services.persistence.DBTransactionStorage
 import net.corda.node.services.persistence.NodeAttachmentService
 import net.corda.node.services.schema.HibernateObserver
 import net.corda.node.services.schema.NodeSchemaService
-import net.corda.node.services.statemachine.FlowStateMachineImpl
-import net.corda.node.services.statemachine.StateMachineManager
-import net.corda.node.services.statemachine.appName
-import net.corda.node.services.statemachine.flowVersionAndInitiatingClass
+import net.corda.node.services.statemachine.*
 import net.corda.node.services.transactions.*
 import net.corda.node.services.upgrade.ContractUpgradeServiceImpl
 import net.corda.node.services.vault.NodeVaultService
@@ -70,7 +67,6 @@ import net.corda.node.utilities.*
 import net.corda.node.utilities.AddOrRemove.ADD
 import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.nodeapi.internal.ServiceType
-import net.corda.nodeapi.internal.serialization.DefaultWhitelist
 import org.apache.activemq.artemis.utils.ReusableLatch
 import org.slf4j.Logger
 import rx.Observable
@@ -100,10 +96,17 @@ import net.corda.core.crypto.generateKeyPair as cryptoGenerateKeyPair
 // TODO: Where this node is the initial network map service, currently no networkMapService is provided.
 // In theory the NodeInfo for the node should be passed in, instead, however currently this is constructed by the
 // AbstractNode. It should be possible to generate the NodeInfo outside of AbstractNode, so it can be passed in.
-abstract class AbstractNode(open val configuration: NodeConfiguration,
+abstract class AbstractNode(config: NodeConfiguration,
                             val advertisedServices: Set<ServiceInfo>,
                             val platformClock: Clock,
+                            protected val versionInfo: VersionInfo,
                             @VisibleForTesting val busyNodeLatch: ReusableLatch = ReusableLatch()) : SingletonSerializeAsToken() {
+    open val configuration = config.apply {
+        require(minimumPlatformVersion <= versionInfo.platformVersion) {
+            "minimumPlatformVersion cannot be greater than the node's own version"
+        }
+    }
+
     private class StartedNodeImpl<out N : AbstractNode>(
             override val internals: N,
             override val services: ServiceHubInternalImpl,
@@ -124,7 +127,6 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
 
     protected abstract val log: Logger
     protected abstract val networkMapAddress: SingleMessageRecipient?
-    protected abstract val platformVersion: Int
 
     // We will run as much stuff in this single thread as possible to keep the risk of thread safety bugs low during the
     // low-performance prototyping period.
@@ -146,7 +148,6 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
     protected lateinit var network: MessagingService
     protected val runOnStop = ArrayList<() -> Any?>()
     protected lateinit var database: CordaPersistence
-    protected var dbCloser: (() -> Any?)? = null
     lateinit var cordappProvider: CordappProviderImpl
     protected val cordappLoader by lazy { makeCordappLoader() }
 
@@ -161,8 +162,8 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         CordaX500Name.build(cert.subjectX500Principal).copy(commonName = null)
     }
 
-    open val pluginRegistries: List<CordaPluginRegistry> by lazy {
-        cordappProvider.cordapps.flatMap { it.plugins } + DefaultWhitelist()
+    open val serializationWhitelists: List<SerializationWhitelist> by lazy {
+        cordappProvider.cordapps.flatMap { it.serializationWhitelists }
     }
 
     /** Set to non-null once [start] has been successfully called. */
@@ -174,25 +175,44 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         return CordaRPCOpsImpl(services, smm, database)
     }
 
-    open fun start(): StartedNode<AbstractNode> {
-        require(started == null) { "Node has already been started" }
+    private fun saveOwnNodeInfo() {
+        NodeInfoWatcher.saveToFile(configuration.baseDirectory, info, services.keyManagementService)
+    }
+
+    private fun initCertificate() {
         if (configuration.devMode) {
             log.warn("Corda node is running in dev mode.")
             configuration.configureWithDevSSLCertificate()
         }
         validateKeystore()
+    }
 
+    open fun generateNodeInfo() {
+        check(started == null) { "Node has already been started" }
+        initCertificate()
+        log.info("Generating nodeInfo ...")
+        val schemaService = NodeSchemaService()
+        initialiseDatabasePersistence(schemaService) {
+            makeServices(schemaService)
+            saveOwnNodeInfo()
+        }
+    }
+
+    open fun start(): StartedNode<AbstractNode> {
+        check(started == null) { "Node has already been started" }
+        initCertificate()
         log.info("Node starting up ...")
-
+        val schemaService = NodeSchemaService()
         // Do all of this in a database transaction so anything that might need a connection has one.
-        val startedImpl = initialiseDatabasePersistence {
-            val tokenizableServices = makeServices()
-
+        val startedImpl = initialiseDatabasePersistence(schemaService) {
+            val tokenizableServices = makeServices(schemaService)
+            saveOwnNodeInfo()
             smm = StateMachineManager(services,
                     checkpointStorage,
                     serverThread,
                     database,
-                    busyNodeLatch)
+                    busyNodeLatch,
+                    cordappLoader.appClassLoader)
 
             smm.tokenizableServices.addAll(tokenizableServices)
 
@@ -215,6 +235,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
             registerCordappFlows()
             _services.rpcFlows += cordappProvider.cordapps.flatMap { it.rpcFlows }
             registerCustomSchemas(cordappProvider.cordapps.flatMap { it.customSchemas }.toSet())
+            FlowLogicRefFactoryImpl.classloader = cordappLoader.appClassLoader
 
             runOnStop += network::stop
             StartedNodeImpl(this, _services, info, checkpointStorage, smm, attachments, inNodeNetworkMapService, network, database, rpcOps)
@@ -250,6 +271,49 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
     }
 
     /**
+     * This customizes the ServiceHub for each CordaService that is initiating flows
+     */
+    private class AppServiceHubImpl<T : SerializeAsToken>(val serviceHub: ServiceHubInternal): AppServiceHub, ServiceHub by serviceHub {
+        lateinit var serviceInstance: T
+        override fun <T> startTrackedFlow(flow: FlowLogic<T>): FlowProgressHandle<T> {
+            val stateMachine = startFlowChecked(flow)
+            return FlowProgressHandleImpl(
+                    id = stateMachine.id,
+                    returnValue = stateMachine.resultFuture,
+                    progress = stateMachine.logic.track()?.updates ?: Observable.empty()
+            )
+        }
+
+        override fun <T> startFlow(flow: FlowLogic<T>): FlowHandle<T> {
+            val stateMachine = startFlowChecked(flow)
+            return FlowHandleImpl(id = stateMachine.id, returnValue = stateMachine.resultFuture)
+        }
+
+        private fun <T> startFlowChecked(flow: FlowLogic<T>): FlowStateMachineImpl<T> {
+            val logicType = flow.javaClass
+            require(logicType.isAnnotationPresent(StartableByService::class.java)) { "${logicType.name} was not designed for starting by a CordaService" }
+            val currentUser = FlowInitiator.Service(serviceInstance.javaClass.name)
+            return serviceHub.startFlow(flow, currentUser)
+        }
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is AppServiceHubImpl<*>) return false
+
+            if (serviceHub != other.serviceHub) return false
+            if (serviceInstance != other.serviceInstance) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = serviceHub.hashCode()
+            result = 31 * result + serviceInstance.hashCode()
+            return result
+        }
+    }
+
+    /**
      * Use this method to install your Corda services in your tests. This is automatically done by the node when it
      * starts up for all classes it finds which are annotated with [CordaService].
      */
@@ -261,8 +325,16 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
                 val constructor = serviceClass.getDeclaredConstructor(ServiceHub::class.java, PublicKey::class.java).apply { isAccessible = true }
                 constructor.newInstance(services, myNotaryIdentity!!.owningKey)
             } else {
-                val constructor = serviceClass.getDeclaredConstructor(ServiceHub::class.java).apply { isAccessible = true }
-                constructor.newInstance(services)
+                try {
+                    val extendedServiceConstructor = serviceClass.getDeclaredConstructor(AppServiceHub::class.java).apply { isAccessible = true }
+                    val serviceContext = AppServiceHubImpl<T>(services)
+                    serviceContext.serviceInstance = extendedServiceConstructor.newInstance(serviceContext)
+                    serviceContext.serviceInstance
+                } catch (ex: NoSuchMethodException) {
+                    val constructor = serviceClass.getDeclaredConstructor(ServiceHub::class.java).apply { isAccessible = true }
+                    log.warn("${serviceClass.name} is using legacy CordaService constructor with ServiceHub parameter. Upgrade to an AppServiceHub parameter to enable updated API features.")
+                    constructor.newInstance(services)
+                }
             }
         } catch (e: InvocationTargetException) {
             throw ServiceInstantiationException(e.cause)
@@ -378,22 +450,22 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
      * Builds node internal, advertised, and plugin services.
      * Returns a list of tokenizable services to be added to the serialisation context.
      */
-    private fun makeServices(): MutableList<Any> {
+    private fun makeServices(schemaService: SchemaService): MutableList<Any> {
         checkpointStorage = DBCheckpointStorage()
         cordappProvider = CordappProviderImpl(cordappLoader)
-        _services = ServiceHubInternalImpl()
+        _services = ServiceHubInternalImpl(schemaService)
         attachments = NodeAttachmentService(services.monitoringService.metrics)
         cordappProvider.start(attachments)
         legalIdentity = obtainIdentity()
         network = makeMessagingService(legalIdentity)
         info = makeInfo(legalIdentity)
-
+        val networkMapCache = services.networkMapCache
         val tokenizableServices = mutableListOf(attachments, network, services.vaultService,
                 services.keyManagementService, services.identityService, platformClock, services.schedulerService,
-                services.auditService, services.monitoringService, services.networkMapCache, services.schemaService,
+                services.auditService, services.monitoringService, networkMapCache, services.schemaService,
                 services.transactionVerifierService, services.validatedTransactions, services.contractUpgradeService,
                 services, cordappProvider, this)
-        makeNetworkServices(tokenizableServices)
+        makeNetworkServices(network, networkMapCache, tokenizableServices)
         return tokenizableServices
     }
 
@@ -424,7 +496,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         val allIdentitiesList = mutableListOf(legalIdentity)
         myNotaryIdentity?.let { allIdentitiesList.add(it) }
         val addresses = myAddresses() // TODO There is no support for multiple IP addresses yet.
-        return NodeInfo(addresses, allIdentitiesList, platformVersion, platformClock.instant().toEpochMilli())
+        return NodeInfo(addresses, allIdentitiesList, versionInfo.platformVersion, platformClock.instant().toEpochMilli())
     }
 
     /**
@@ -468,18 +540,15 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
     // Specific class so that MockNode can catch it.
     class DatabaseConfigurationException(msg: String) : CordaException(msg)
 
-    protected open fun <T> initialiseDatabasePersistence(insideTransaction: () -> T): T {
+    protected open fun <T> initialiseDatabasePersistence(schemaService: SchemaService, insideTransaction: () -> T): T {
         val props = configuration.dataSourceProperties
         if (props.isNotEmpty()) {
-            this.database = configureDatabase(props, configuration.database, { _services.schemaService }, createIdentityService = { _services.identityService })
+            this.database = configureDatabase(props, configuration.database, schemaService, { _services.identityService })
             // Now log the vendor string as this will also cause a connection to be tested eagerly.
             database.transaction {
                 log.info("Connected to ${database.dataSource.connection.metaData.databaseProductName} database.")
             }
-            this.database::close.let {
-                dbCloser = it
-                runOnStop += it
-            }
+            runOnStop += database::close
             return database.transaction {
                 insideTransaction()
             }
@@ -488,9 +557,9 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         }
     }
 
-    private fun makeNetworkServices(tokenizableServices: MutableList<Any>) {
+    private fun makeNetworkServices(network: MessagingService, networkMapCache: NetworkMapCacheInternal, tokenizableServices: MutableList<Any>) {
         val serviceTypes = advertisedServices.map { it.type }
-        inNodeNetworkMapService = if (NetworkMapService.type in serviceTypes) makeNetworkMapService() else NullNetworkMapService
+        inNodeNetworkMapService = if (configuration.networkMapService == null) makeNetworkMapService(network, networkMapCache) else NullNetworkMapService
         val notaryServiceType = serviceTypes.singleOrNull { it.isNotary() }
         if (notaryServiceType != null) {
             val service = makeCoreNotaryService(notaryServiceType)
@@ -532,9 +601,6 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
      * updates) if one has been supplied.
      */
     protected open fun registerWithNetworkMap(): CordaFuture<Unit> {
-        require(networkMapAddress != null || NetworkMapService.type in advertisedServices.map { it.type }) {
-            "Initial network map address must indicate a node that provides a network map service"
-        }
         val address: SingleMessageRecipient = networkMapAddress ?:
                 network.getAddressOfParty(PartyInfo.SingleNode(services.myInfo.legalIdentitiesAndCerts.first().party, info.addresses)) as SingleMessageRecipient
         // Register for updates, even if we're the one running the network map.
@@ -572,9 +638,7 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
         return PersistentKeyManagementService(identityService, partyKeys)
     }
 
-    open protected fun makeNetworkMapService(): NetworkMapService {
-        return PersistentNetworkMapService(services, configuration.minimumPlatformVersion)
-    }
+    abstract protected fun makeNetworkMapService(network: MessagingService, networkMapCache: NetworkMapCacheInternal): NetworkMapService
 
     open protected fun makeCoreNotaryService(type: ServiceType): NotaryService? {
         check(myNotaryIdentity != null) { "No notary identity initialized when creating a notary service" }
@@ -681,15 +745,13 @@ abstract class AbstractNode(open val configuration: NodeConfiguration,
 
     protected open fun generateKeyPair() = cryptoGenerateKeyPair()
 
-    private inner class ServiceHubInternalImpl : ServiceHubInternal, SingletonSerializeAsToken() {
-
+    private inner class ServiceHubInternalImpl(override val schemaService: SchemaService) : ServiceHubInternal, SingletonSerializeAsToken() {
         override val rpcFlows = ArrayList<Class<out FlowLogic<*>>>()
         override val stateMachineRecordedTransactionMapping = DBTransactionMappingStorage()
         override val auditService = DummyAuditService()
         override val monitoringService = MonitoringService(MetricRegistry())
         override val validatedTransactions = makeTransactionStorage()
         override val transactionVerifierService by lazy { makeTransactionVerifierService() }
-        override val schemaService by lazy { NodeSchemaService() }
         override val networkMapCache by lazy { PersistentNetworkMapCache(this) }
         override val vaultService by lazy { NodeVaultService(this, database.hibernateConfig) }
         override val contractUpgradeService by lazy { ContractUpgradeServiceImpl() }
