@@ -17,6 +17,7 @@ import net.corda.node.VersionInfo
 import net.corda.node.internal.StateLoaderImpl
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.services.api.StateMachineRecordedTransactionMappingStorage
+import net.corda.node.services.api.VaultServiceInternal
 import net.corda.node.services.api.WritableTransactionStorage
 import net.corda.node.services.identity.InMemoryIdentityService
 import net.corda.node.services.keys.freshCertificate

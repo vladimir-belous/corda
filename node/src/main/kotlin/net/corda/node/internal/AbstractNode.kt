@@ -453,11 +453,11 @@ abstract class AbstractNode(config: NodeConfiguration,
      */
     private fun makeServices(schemaService: SchemaService): MutableList<Any> {
         checkpointStorage = DBCheckpointStorage()
+        val transactionStorage = makeTransactionStorage()
         val metrics = MetricRegistry()
         attachments = NodeAttachmentService(metrics)
         val cordappProvider = CordappProviderImpl(cordappLoader, attachments)
-        val transactionStorage = makeTransactionStorage()
-        _services = ServiceHubInternalImpl(schemaService, MonitoringService(metrics), cordappProvider, transactionStorage, StateLoaderImpl(transactionStorage))
+        _services = ServiceHubInternalImpl(schemaService, transactionStorage, StateLoaderImpl(transactionStorage), MonitoringService(metrics), cordappProvider)
         legalIdentity = obtainIdentity(notaryConfig = null)
         network = makeMessagingService(legalIdentity)
         info = makeInfo(legalIdentity)
@@ -747,10 +747,10 @@ abstract class AbstractNode(config: NodeConfiguration,
 
     private inner class ServiceHubInternalImpl(
             override val schemaService: SchemaService,
-            override val monitoringService: MonitoringService,
-            override val cordappProvider: CordappProviderInternal,
             override val validatedTransactions: WritableTransactionStorage,
-            private val stateLoader: StateLoader
+            private val stateLoader: StateLoader,
+            override val monitoringService: MonitoringService,
+            override val cordappProvider: CordappProviderInternal
     ) : SingletonSerializeAsToken(), ServiceHubInternal, StateLoader by stateLoader {
         override val rpcFlows = ArrayList<Class<out FlowLogic<*>>>()
         override val stateMachineRecordedTransactionMapping = DBTransactionMappingStorage()

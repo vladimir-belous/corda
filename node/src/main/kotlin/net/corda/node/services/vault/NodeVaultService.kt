@@ -14,7 +14,6 @@ import net.corda.core.node.services.vault.Sort
 import net.corda.core.node.services.vault.SortAttribute
 import net.corda.core.messaging.DataFeed
 import net.corda.core.node.services.VaultQueryException
-import net.corda.core.node.services.VaultService
 import net.corda.core.node.services.vault.*
 import net.corda.core.schemas.PersistentStateRef
 import net.corda.core.serialization.SerializationDefaults.STORAGE_CONTEXT
@@ -25,6 +24,7 @@ import net.corda.core.transactions.CoreTransaction
 import net.corda.core.transactions.NotaryChangeWireTransaction
 import net.corda.core.transactions.WireTransaction
 import net.corda.core.utilities.*
+import net.corda.node.services.api.VaultServiceInternal
 import net.corda.node.services.persistence.HibernateConfiguration
 import net.corda.node.services.statemachine.FlowStateMachineImpl
 import net.corda.node.utilities.DatabaseTransactionManager
@@ -47,19 +47,6 @@ import javax.persistence.criteria.Root
 private fun CriteriaBuilder.executeUpdate(session: Session, configure: Root<*>.(CriteriaUpdate<*>) -> Any?) = createCriteriaUpdate(VaultSchemaV1.VaultStates::class.java).let { update ->
     update.from(VaultSchemaV1.VaultStates::class.java).run { configure(update) }
     session.createQuery(update).executeUpdate()
-}
-
-interface VaultServiceInternal : VaultService {
-    /**
-     * Splits the provided [txns] into batches of [WireTransaction] and [NotaryChangeWireTransaction].
-     * This is required because the batches get aggregated into single updates, and we want to be able to
-     * indicate whether an update consists entirely of regular or notary change transactions, which may require
-     * different processing logic.
-     */
-    fun notifyAll(txns: Iterable<CoreTransaction>)
-
-    /** Same as notifyAll but with a single transaction. */
-    fun notify(tx: CoreTransaction) = notifyAll(listOf(tx))
 }
 
 /**
