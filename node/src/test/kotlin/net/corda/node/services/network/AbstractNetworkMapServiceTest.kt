@@ -205,7 +205,7 @@ abstract class AbstractNetworkMapServiceTest<out S : AbstractNetworkMapService> 
     private var lastSerial = Long.MIN_VALUE
 
     private fun StartedNode<*>.registration(addOrRemove: AddOrRemove,
-                                      serial: Long? = null): CordaFuture<RegistrationResponse> {
+                                            serial: Long? = null): CordaFuture<RegistrationResponse> {
         val distinctSerial = if (serial == null) {
             ++lastSerial
         } else {
