@@ -1,7 +1,6 @@
 package net.corda.node.services.network
 
 import net.corda.core.messaging.SingleMessageRecipient
-import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.core.schemas.MappedSchema
 import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.nodeapi.internal.ServiceInfo
