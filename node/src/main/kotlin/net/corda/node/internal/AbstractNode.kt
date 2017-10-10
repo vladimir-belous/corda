@@ -102,6 +102,7 @@ abstract class AbstractNode(config: NodeConfiguration,
                             val advertisedServices: Set<ServiceInfo>,
                             val platformClock: Clock,
                             protected val versionInfo: VersionInfo,
+                            protected val cordappLoader: CordappLoader,
                             @VisibleForTesting val busyNodeLatch: ReusableLatch = ReusableLatch()) : SingletonSerializeAsToken() {
     open val configuration = config.apply {
         require(minimumPlatformVersion <= versionInfo.platformVersion) {
@@ -151,7 +152,6 @@ abstract class AbstractNode(config: NodeConfiguration,
     protected lateinit var network: MessagingService
     protected val runOnStop = ArrayList<() -> Any?>()
     protected lateinit var database: CordaPersistence
-    protected val cordappLoader = makeCordappLoader()
     protected val _nodeReadyFuture = openFuture<Unit>()
     /** Completes once the node has successfully registered with the network map service
      * or has loaded network map data from local database */
@@ -469,19 +469,6 @@ abstract class AbstractNode(config: NodeConfiguration,
                 services, cordappProvider, this)
         makeNetworkServices(network, networkMapCache, tokenizableServices)
         return tokenizableServices
-    }
-
-    private fun makeCordappLoader(): CordappLoader {
-        val scanPackages = System.getProperty("net.corda.node.cordapp.scan.packages")
-        return if (CordappLoader.testPackages.isNotEmpty()) {
-            check(configuration.devMode) { "Package scanning can only occur in dev mode" }
-            CordappLoader.createDefaultWithTestPackages(configuration.baseDirectory, CordappLoader.testPackages)
-        } else if (scanPackages != null) {
-            check(configuration.devMode) { "Package scanning can only occur in dev mode" }
-            CordappLoader.createDefaultWithTestPackages(configuration.baseDirectory, scanPackages.split(","))
-        } else {
-            CordappLoader.createDefault(configuration.baseDirectory)
-        }
     }
 
     protected open fun customSchemas() = cordappLoader.cordapps.flatMap { it.customSchemas }.toSet()

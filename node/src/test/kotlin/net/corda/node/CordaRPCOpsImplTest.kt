@@ -61,9 +61,7 @@ class CordaRPCOpsImplTest {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.finance.contracts.asset")
-
-        mockNet = MockNetwork()
+        mockNet = MockNetwork(cordappPackages = listOf("net.corda.finance.contracts.asset"))
         aliceNode = mockNet.createNode()
         notaryNode = mockNet.createNotaryNode(validating = false)
         rpc = aliceNode.rpcOps
@@ -80,7 +78,6 @@ class CordaRPCOpsImplTest {
     @After
     fun cleanUp() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test
@@ -99,7 +96,6 @@ class CordaRPCOpsImplTest {
         }
 
         // Tell the monitoring service node to issue some cash
-        val recipient = aliceNode.info.chooseIdentity()
         val result = rpc.startFlow(::CashIssueFlow, Amount(quantity, GBP), ref, notary)
         mockNet.runNetwork()
 

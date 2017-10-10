@@ -39,8 +39,7 @@ class ContractUpgradeFlowTest {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.testing.contracts", "net.corda.finance.contracts.asset", "net.corda.core.flows")
-        mockNet = MockNetwork()
+        mockNet = MockNetwork(cordappPackages = listOf("net.corda.testing.contracts", "net.corda.finance.contracts.asset", "net.corda.core.flows"))
         val notaryNode = mockNet.createNotaryNode()
         aliceNode = mockNet.createPartyNode(ALICE.name)
         bobNode = mockNet.createPartyNode(BOB.name)
@@ -55,7 +54,6 @@ class ContractUpgradeFlowTest {
     @After
     fun tearDown() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test
