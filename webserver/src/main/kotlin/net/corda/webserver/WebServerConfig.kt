@@ -1,22 +1,22 @@
 package net.corda.webserver
 
-import com.typesafe.config.Config
 import net.corda.core.utilities.NetworkHostAndPort
 import net.corda.nodeapi.User
 import net.corda.nodeapi.config.NodeSSLConfiguration
-import net.corda.nodeapi.config.getValue
 import java.nio.file.Path
 
 /**
  * [baseDirectory] is not retrieved from the config file but rather from a command line argument.
  */
-class WebServerConfig(override val baseDirectory: Path, val config: Config) : NodeSSLConfiguration {
-    override val keyStorePassword: String by config
-    override val trustStorePassword: String by config
+data class WebServerConfig(
+        override val baseDirectory: Path,
+        override val keyStorePassword: String,
+        override val trustStorePassword: String,
+        val useHTTPS: Boolean,
+        val myLegalName: String,
+        val rpcAddress: NetworkHostAndPort,
+        val webAddress: NetworkHostAndPort,
+        val rpcUsers: List<User>
+) : NodeSSLConfiguration {
     val exportJMXto: String get() = "http"
-    val useHTTPS: Boolean by config
-    val myLegalName: String by config
-    val rpcAddress: NetworkHostAndPort by config
-    val webAddress: NetworkHostAndPort by config
-    val rpcUsers: List<User> by config
 }

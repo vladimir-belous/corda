@@ -696,6 +696,9 @@ class DriverDSL(
             override fun getName() = name.toString()
             override fun getConfig() = configOf("p2pAddress" to p2pAddress.toString())
         }))
+
+
+
         val config = ConfigHelper.loadConfig(
                 baseDirectory = baseDirectory(name),
                 allowMissingConfig = true,
@@ -837,23 +840,27 @@ class DriverDSL(
     override fun baseDirectory(nodeName: String): Path = baseDirectory(CordaX500Name.parse(nodeName))
 
     override fun startDedicatedNetworkMapService(startInProcess: Boolean?, maximumHeapSize: String): CordaFuture<NodeHandle> {
-        val webAddress = portAllocation.nextHostAndPort()
-        val rpcAddress = portAllocation.nextHostAndPort()
-        val networkMapLegalName = networkMapStartStrategy.legalName
+        val useTestClock = useTestClock
+        @Suppress("unused")
+        class ConfigTemplate {
+            val myLegalName = networkMapStartStrategy.legalName
+            val p2pAddress = dedicatedNetworkMapAddress
+            // TODO: remove the webAddress as NMS doesn't need to run a web server. This will cause all
+            //       node port numbers to be shifted, so all demos and docs need to be updated accordingly.
+            val webAddress = portAllocation.nextHostAndPort()
+            val rpcAddress = portAllocation.nextHostAndPort()
+            val rpcUsers = defaultRpcUserList
+            val useTestClock = useTestClock
+        }
+
+        val template = ConfigTemplate()
+
         val config = ConfigHelper.loadConfig(
-                baseDirectory = baseDirectory(networkMapLegalName),
+                baseDirectory = baseDirectory(template.myLegalName),
                 allowMissingConfig = true,
-                configOverrides = configOf(
-                        "myLegalName" to networkMapLegalName.toString(),
-                        // TODO: remove the webAddress as NMS doesn't need to run a web server. This will cause all
-                        //       node port numbers to be shifted, so all demos and docs need to be updated accordingly.
-                        "webAddress" to webAddress.toString(),
-                        "rpcAddress" to rpcAddress.toString(),
-                        "rpcUsers" to defaultRpcUserList,
-                        "p2pAddress" to dedicatedNetworkMapAddress.toString(),
-                        "useTestClock" to useTestClock)
+                configOverrides = template.toConfig()
         )
-        return startNodeInternal(config, webAddress, startInProcess, maximumHeapSize)
+        return startNodeInternal(config, template.webAddress, startInProcess, maximumHeapSize)
     }
 
     private fun startNodeInternal(config: Config, webAddress: NetworkHostAndPort, startInProcess: Boolean?, maximumHeapSize: String): CordaFuture<NodeHandle> {
@@ -907,7 +914,7 @@ class DriverDSL(
     }
 
     companion object {
-        private val defaultRpcUserList = listOf(User("default", "default", setOf("ALL")).toMap())
+        private val defaultRpcUserList = listOf(User("default", "default", setOf("ALL")))
 
         private val names = arrayOf(
                 ALICE.name,

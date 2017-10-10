@@ -23,6 +23,7 @@ import org.apache.logging.log4j.Level
 import org.junit.After
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
+import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
@@ -143,7 +144,10 @@ abstract class NodeBasedTest : TestDependencyInjectionBase() {
         val nodeAddresses = getFreeLocalPorts("localhost", clusterSize)
 
         val masterNodeFuture = startNode(
-                CordaX500Name(organisation = "${notaryName.organisation}-0", locality = notaryName.locality, country = notaryName.country),
+                legalName = CordaX500Name(
+                        organisation = "${notaryName.organisation}-0",
+                        locality = notaryName.locality,
+                        country = notaryName.country),
                 configOverrides = notaryConfig(nodeAddresses[0]) + mapOf(
                         "database" to mapOf(
                                 "serverNameTablePrefix" to if (clusterSize > 1) "${notaryName.organisation}0".replace(Regex("[^0-9A-Za-z]+"), "") else ""
@@ -153,7 +157,10 @@ abstract class NodeBasedTest : TestDependencyInjectionBase() {
 
         val remainingNodesFutures = (1 until clusterSize).map {
             startNode(
-                    CordaX500Name(organisation = "${notaryName.organisation}-$it", locality = notaryName.locality, country = notaryName.country),
+                    legalName = CordaX500Name(
+                            organisation = "${notaryName.organisation}-$it",
+                            locality = notaryName.locality,
+                            country = notaryName.country),
                     configOverrides = notaryConfig(nodeAddresses[it], nodeAddresses[0]) + mapOf(
                             "database" to mapOf(
                                     "serverNameTablePrefix" to "${notaryName.organisation}$it".replace(Regex("[^0-9A-Za-z]+"), "")
@@ -167,26 +174,31 @@ abstract class NodeBasedTest : TestDependencyInjectionBase() {
         }
     }
 
-    protected fun baseDirectory(legalName: CordaX500Name) = tempFolder.root.toPath() / legalName.organisation.replace(WHITESPACE, "")
+    protected fun baseDirectory(legalName: CordaX500Name): Path {
+        return tempFolder.root.toPath() / legalName.organisation.replace(WHITESPACE, "")
+    }
 
     private fun startNodeInternal(legalName: CordaX500Name,
                                   platformVersion: Int,
                                   rpcUsers: List<User>,
                                   configOverrides: Map<String, Any>,
                                   noNetworkMap: Boolean = false): StartedNode<Node> {
-        val baseDirectory = baseDirectory(legalName).createDirectories()
         val localPort = getFreeLocalPorts("localhost", 2)
-        val p2pAddress = configOverrides["p2pAddress"] ?: localPort[0].toString()
+
+        @Suppress("unused")
+        class ConfigTemplate {
+            private val myLegalName = legalName
+            private val p2pAddress = localPort[0]
+            private val rpcAddress = localPort[1]
+            private val rpcUsers = rpcUsers
+            private val noNetworkMap = noNetworkMap
+        }
+
+        val baseDirectory = baseDirectory(legalName).createDirectories()
         val config = ConfigHelper.loadConfig(
                 baseDirectory = baseDirectory,
                 allowMissingConfig = true,
-                configOverrides = configOf(
-                        "myLegalName" to legalName.toString(),
-                        "p2pAddress" to p2pAddress,
-                        "rpcAddress" to localPort[1].toString(),
-                        "rpcUsers" to rpcUsers.map { it.toMap() },
-                        "noNetworkMap" to noNetworkMap
-                ) + configOverrides
+                configOverrides = ConfigTemplate().toConfig() + configOverrides
         )
 
         val parsedConfig = config.parseAs<FullNodeConfiguration>()

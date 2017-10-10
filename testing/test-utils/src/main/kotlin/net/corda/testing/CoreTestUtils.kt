@@ -118,7 +118,7 @@ fun freePort(): Int = freePortCounter.getAndAccumulate(0) { prev, _ -> 30000 + (
  */
 fun getFreeLocalPorts(hostName: String, numberToAlloc: Int): List<NetworkHostAndPort> {
     val freePort = freePortCounter.getAndAccumulate(0) { prev, _ -> 30000 + (prev - 30000 + numberToAlloc) % 10000 }
-    return (freePort..freePort + numberToAlloc - 1).map { NetworkHostAndPort(hostName, it) }
+    return (freePort until freePort + numberToAlloc).map { NetworkHostAndPort(hostName, it) }
 }
 
 @JvmOverloads

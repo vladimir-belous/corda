@@ -32,11 +32,26 @@ import kotlin.reflect.jvm.jvmErasure
 @Target(AnnotationTarget.PROPERTY)
 annotation class OldConfig(val value: String)
 
-// TODO Move other config parsing to use parseAs and remove this
-operator fun <T : Any> Config.getValue(receiver: Any, metadata: KProperty<*>): T {
-    return getValueInternal(metadata.name, metadata.returnType)
-}
-
+/**
+ * Parse the receiver [Config] into a object of type [T] by taking each constructor parameter as a path in the [Config].
+ * The type of the parameter determines how the path value will be parsed. Types natively supported by [Config] are taken
+ * as is, and for the following types the path value is expected to be a String which is parsed:
+ * - [LocalDate]
+ * - [Instant]
+ * - [NetworkHostAndPort]
+ * - [Path] - The default filesystem will be used to generate the path.
+ * - [URL]
+ * - [CordaX500Name]
+ * - Enums - They are parsed based on their name.
+ *
+ * If the parameter is a [List] or [Set] then the same logic is applied to the element type.
+ *
+ * If none of the above applies then the path value is assumed to be a complex object and [parseAs] is recusively applied
+ * on it.
+ *
+ * For now only Kotlin data classes are supported since they guarantee contructor parameters have exactly matching fields.
+ * This is important for ensuring [parseAs] returns a value on which [toConfig] will return back an equivalent [Config].
+ */
 fun <T : Any> Config.parseAs(clazz: KClass<T>): T {
     require(clazz.isData) { "Only Kotlin data classes can be parsed" }
     val constructor = clazz.primaryConstructor!!
@@ -139,7 +154,7 @@ private fun <T : Enum<T>> enumBridge(clazz: Class<T>, name: String): T = java.la
 fun Any.toConfig(): Config = ConfigValueFactory.fromMap(toConfigMap()).toConfig()
 
 @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
-// Reflect over the fields of the receiver and generate a value Map that can use to create Config object.
+// Reflect over the fields of the receiver and generate a value Map that can be used to create a Config object.
 private fun Any.toConfigMap(): Map<String, Any> {
     val values = HashMap<String, Any>()
     for (field in javaClass.declaredFields) {
@@ -147,7 +162,7 @@ private fun Any.toConfigMap(): Map<String, Any> {
         field.isAccessible = true
         val value = field.get(this) ?: continue
         val configValue = if (value is String || value is Boolean || value is Number) {
-            // These types are supported by Config as use as is
+            // These types are supported by Config so use as is
             value
         } else if (value is Temporal || value is NetworkHostAndPort || value is CordaX500Name || value is Path || value is URL) {
             // These types make sense to be represented as Strings and the exact inverse parsing function for use in parseAs
@@ -161,7 +176,7 @@ private fun Any.toConfigMap(): Map<String, Any> {
         } else if (value is Iterable<*>) {
             value.toConfigIterable(field)
         } else {
-            // Else this is a custom object recursed over
+            // Else this is a custom object so recurse over
             value.toConfigMap()
         }
         values[field.name] = configValue
@@ -169,7 +184,7 @@ private fun Any.toConfigMap(): Map<String, Any> {
     return values
 }
 
-// For Iterables figure out the type parameter and apply the same logic as above on the individual elements.
+// For Iterables figure out the element type and apply the same logic as above on the individual elements.
 private fun Iterable<*>.toConfigIterable(field: Field): Iterable<Any?> {
     val elementType = (field.genericType as ParameterizedType).actualTypeArguments[0] as Class<*>
     return when (elementType) {

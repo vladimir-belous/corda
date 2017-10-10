@@ -5,6 +5,7 @@ package net.corda.webserver
 import com.typesafe.config.ConfigException
 import net.corda.core.internal.div
 import net.corda.core.internal.rootCause
+import net.corda.nodeapi.config.parseAs
 import net.corda.webserver.internal.NodeWebServer
 import org.slf4j.LoggerFactory
 import java.lang.management.ManagementFactory
@@ -42,7 +43,7 @@ fun main(args: Array<String>) {
     println("Logs can be found in ${System.getProperty("log-path")}")
 
     val conf = try {
-        WebServerConfig(cmdlineOptions.baseDirectory, cmdlineOptions.loadConfig())
+        cmdlineOptions.loadConfig().parseAs<WebServerConfig>()
     } catch (e: ConfigException) {
         println("Unable to load the configuration file: ${e.rootCause.message}")
         exitProcess(2)

@@ -30,9 +30,9 @@ object ConfigHelper {
         val parseOptions = ConfigParseOptions.defaults()
         val defaultConfig = ConfigFactory.parseResources("reference.conf", parseOptions.setAllowMissing(false))
         val appConfig = ConfigFactory.parseFile(configFile.toFile(), parseOptions.setAllowMissing(allowMissingConfig))
-        val finalConfig = configOf(
+        val finalConfig = ConfigFactory.parseMap(mapOf(
                 // Add substitution values here
-                "baseDirectory" to baseDirectory.toString())
+                "baseDirectory" to baseDirectory.toString()))
                 .withFallback(configOverrides)
                 .withFallback(appConfig)
                 .withFallback(defaultConfig)
