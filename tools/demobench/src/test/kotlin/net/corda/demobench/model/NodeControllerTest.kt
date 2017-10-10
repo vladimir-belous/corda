@@ -177,14 +177,14 @@ class NodeControllerTest {
             users: List<User> = listOf(user("guest"))
     ): NodeConfigWrapper {
         val nodeConfig = NodeConfig(
-            CordaX500Name(organisation, "New York", "US"),
-            localPort(p2pPort),
-            localPort(rpcPort),
-            localPort(webPort),
-            notary,
-            networkMap,
-            h2port,
-            users
+                CordaX500Name(organisation, "New York", "US"),
+                localPort(p2pPort),
+                localPort(rpcPort),
+                localPort(webPort),
+                notary,
+                networkMap,
+                h2port,
+                users
         )
         return NodeConfigWrapper(baseDir, nodeConfig)
     }
