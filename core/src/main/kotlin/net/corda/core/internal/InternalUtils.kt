@@ -234,7 +234,7 @@ private fun IntProgression.toSpliterator(): Spliterator.OfInt {
 }
 
 fun IntProgression.stream(parallel: Boolean = false): IntStream = StreamSupport.intStream(toSpliterator(), parallel)
-
+fun <T> Stream<out T?>.filterNotNull(): Stream<T> = uncheckedCast(filter(Objects::nonNull))
 // When toArray has filled in the array, the component type is no longer T? but T (that may itself be nullable):
 inline fun <reified T> Stream<out T>.toTypedArray(): Array<T> = uncheckedCast(toArray { size -> arrayOfNulls<T>(size) })
 

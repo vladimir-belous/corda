@@ -1,6 +1,7 @@
 package net.corda.lazyhub
 
 import net.corda.core.internal.declaredField
+import net.corda.core.internal.filterNotNull
 import net.corda.core.internal.toTypedArray
 import net.corda.core.internal.uncheckedCast
 import net.corda.core.serialization.CordaSerializable
@@ -17,8 +18,7 @@ import kotlin.streams.toList
 
 private fun <T> Stream<T>.toTypedArray(ct: Class<T>): Array<T> = toArray { n -> uncheckedCast<Any, Array<T?>>(java.lang.reflect.Array.newInstance(ct, n)) }
 private fun <K, V> Stream<Pair<K, V>>.toMap() = collect<LinkedHashMap<K, V>>(::LinkedHashMap, { m, (k, v) -> m.put(k, v) }, { _, _ -> throw UnsupportedOperationException() })
-private fun <T> Stream<T?>.nonNull(): Stream<T> = uncheckedCast(filter(Objects::nonNull))
-private fun Class<*>.conjugate() = if (isPrimitive) {
+private fun Class<*>.complement() = if (isPrimitive) {
     java.lang.reflect.Array.get(java.lang.reflect.Array.newInstance(this, 1), 0).javaClass
 } else try {
     getField("TYPE").get(null) as Class<*>
@@ -72,7 +72,7 @@ interface MutableLazyHub : LazyHub {
 }
 
 private infix fun Class<*>.satisfiedBy(clazz: Class<*>): Boolean {
-    return isAssignableFrom(clazz) || conjugate() == clazz
+    return isAssignableFrom(clazz) || complement() == clazz
 }
 
 private fun <T> KFunction<T>.callWith(argSuppliers: List<Pair<KParam, ArgSupplier>>): T {
@@ -83,7 +83,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
     private val providers = mutableMapOf<Class<*>, MutableList<Provider<*>>>()
     private fun add(seen: MutableSet<Class<*>>, type: Class<*>, provider: Provider<*>) {
         providers[type]?.add(provider) ?: providers.put(type, mutableListOf(provider))
-        Stream.concat(Arrays.stream(type.interfaces), Stream.of(type.superclass, type.conjugate()).nonNull()).forEach {
+        Stream.concat(Arrays.stream(type.interfaces), Stream.of(type.superclass, type.complement()).filterNotNull()).forEach {
             if (seen.add(it)) add(seen, it, provider) // TODO: Enforce seen.
         }
     }
@@ -155,7 +155,7 @@ private class LazyHubImpl(private val parent: LazyHubImpl?) : MutableLazyHub {
                 fail?.addSuppressed(e) ?: run { fail = e }
                 null
             }
-        }.nonNull().toList()
+        }.filterNotNull().toList()
         satisfiable.isEmpty() && throw fail ?: NoPublicConstructorsException("No public constructors: $type")
         fun Pair<*, List<Pair<*, ArgSupplier>>>.providerCount() = second.stream().filter { (_, supplier) -> supplier.provider != null }.count()
         val greediest = mutableListOf(satisfiable[0])
