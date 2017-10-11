@@ -59,6 +59,7 @@ buildscript {
         classpath "net.corda.plugins:publish-utils:$gradle_plugins_version"
         classpath "net.corda.plugins:quasar-utils:$gradle_plugins_version"
         classpath "net.corda.plugins:cordformation:$gradle_plugins_version"
+        classpath "net.corda.plugins:cordapp:$gradle_plugins_version"
         classpath "net.corda.plugins:api-scanner:$gradle_plugins_version"
         classpath 'com.github.ben-manes:gradle-versions-plugin:0.15.0'
         classpath "org.jetbrains.kotlin:kotlin-noarg:$kotlin_version"
@@ -180,21 +181,21 @@ repositories {
 
 // Required for building out the fat JAR.
 dependencies {
-    cordaCompile project(':node')
+    compile project(':node')
     compile "com.google.guava:guava:$guava_version"
 
     // Set to corda compile to ensure it exists now deploy nodes no longer relies on build
-    cordaCompile project(path: ":node:capsule", configuration: 'runtimeArtifacts')
-    cordaCompile project(path: ":webserver:webcapsule", configuration: 'runtimeArtifacts')
+    compile project(path: ":node:capsule", configuration: 'runtimeArtifacts')
+    compile project(path: ":webserver:webcapsule", configuration: 'runtimeArtifacts')
 
     // For the buildCordappDependenciesJar task
-    cordaRuntime project(':client:jfx')
-    cordaRuntime project(':client:mock')
-    cordaRuntime project(':client:rpc')
-    cordaRuntime project(':core')
-    cordaRuntime project(':confidential-identities')
-    cordaRuntime project(':finance')
-    cordaRuntime project(':webserver')
+    runtime project(':client:jfx')
+    runtime project(':client:mock')
+    runtime project(':client:rpc')
+    runtime project(':core')
+    runtime project(':confidential-identities')
+    runtime project(':finance')
+    runtime project(':webserver')
     testCompile project(':test-utils')
 }
 
@@ -230,16 +231,14 @@ tasks.withType(Test) {
 
 task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
     directory "./build/nodes"
-    networkMap "O=Controller,OU=corda,L=London,C=GB"
     node {
         name "O=Controller,OU=corda,L=London,C=GB"
-        advertisedServices = ["corda.notary.validating"]
+        notary = [validating : true]
         p2pPort 10002
         cordapps = []
     }
     node {
         name "O=Bank A,OU=corda,L=London,C=GB"
-        advertisedServices = []
         p2pPort 10012
         rpcPort 10013
         webPort 10014
@@ -247,7 +246,6 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
     }
     node {
         name "O=Bank B,OU=corda,L=London,C=GB"
-        advertisedServices = []
         p2pPort 10007
         rpcPort 10008
         webPort 10009
@@ -295,12 +293,16 @@ artifactory {
     publish {
         contextUrl = 'https://ci-artifactory.corda.r3cev.com/artifactory'
         repository {
-            repoKey = 'corda-releases'
+            repoKey = 'corda-dev'
             username = 'teamcity'
             password = System.getenv('CORDA_ARTIFACTORY_PASSWORD')
         }
+
         defaults {
-            publications('corda-jfx', 'corda-mock', 'corda-rpc', 'corda-core', 'corda', 'cordform-common', 'corda-finance', 'corda-node', 'corda-node-api', 'corda-test-common', 'corda-test-utils', 'corda-jackson', 'corda-verifier', 'corda-webserver-impl', 'corda-webserver', 'corda-node-driver', 'corda-confidential-identities')
+            // Root project applies the plugin (for this block) but does not need to be published
+            if(project != rootProject) {
+                publications(project.extensions.publish.name())
+            }
         }
     }
 }

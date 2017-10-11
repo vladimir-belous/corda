@@ -15,14 +15,15 @@ import net.corda.core.node.ServiceHub
 import net.corda.core.serialization.SerializationDefaults
 import net.corda.core.utilities.*
 import net.corda.node.VersionInfo
+import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.serialization.KryoServerSerializationScheme
 import net.corda.node.serialization.NodeClock
 import net.corda.node.services.RPCUserService
 import net.corda.node.services.RPCUserServiceImpl
 import net.corda.node.services.api.NetworkMapCacheInternal
 import net.corda.node.services.api.SchemaService
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.config.FullNodeConfiguration
+import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.messaging.ArtemisMessagingServer
 import net.corda.node.services.messaging.ArtemisMessagingServer.Companion.ipDetectRequestProperty
 import net.corda.node.services.messaging.ArtemisMessagingServer.Companion.ipDetectResponseProperty
@@ -60,14 +61,12 @@ import kotlin.system.exitProcess
  * loads important data off disk and starts listening for connections.
  *
  * @param configuration This is typically loaded from a TypeSafe HOCON configuration file.
- * @param advertisedServices The services this node advertises. This must be a subset of the services it runs,
- * but nodes are not required to advertise services they run (hence subset).
  */
 open class Node(override val configuration: FullNodeConfiguration,
-                advertisedServices: Set<ServiceInfo>,
                 versionInfo: VersionInfo,
-                val initialiseSerialization: Boolean = true
-) : AbstractNode(configuration, advertisedServices, createClock(configuration), versionInfo) {
+                val initialiseSerialization: Boolean = true,
+                cordappLoader: CordappLoader = makeCordappLoader(configuration)
+) : AbstractNode(configuration, createClock(configuration), versionInfo, cordappLoader) {
     companion object {
         private val logger = loggerFor<Node>()
         var renderBasicInfoToConsole = true
@@ -90,6 +89,13 @@ open class Node(override val configuration: FullNodeConfiguration,
         }
 
         private val sameVmNodeCounter = AtomicInteger()
+        val scanPackagesSystemProperty = "net.corda.node.cordapp.scan.packages"
+        val scanPackagesSeparator = ","
+        private fun makeCordappLoader(configuration: NodeConfiguration): CordappLoader {
+            return System.getProperty(scanPackagesSystemProperty)?.let { scanPackages ->
+                CordappLoader.createDefaultWithTestPackages(configuration, scanPackages.split(scanPackagesSeparator))
+            } ?: CordappLoader.createDefault(configuration.baseDirectory)
+        }
     }
 
     override val log: Logger get() = logger
@@ -349,7 +355,7 @@ open class Node(override val configuration: FullNodeConfiguration,
                 _startupComplete.set(Unit)
             }
         },
-        { th -> logger.error("Unexpected exception", th)}
+                { th -> logger.error("Unexpected exception", th) }
         )
         shutdownHook = addShutdownHook {
             stop()

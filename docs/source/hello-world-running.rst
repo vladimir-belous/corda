@@ -25,17 +25,15 @@ Let's take a look at the nodes we're going to deploy. Open the project's ``build
 
         task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
             directory "./build/nodes"
-            networkMap "O=Controller,L=London,C=GB"
             node {
                 name "O=Controller,L=London,C=GB"
-                advertisedServices = ["corda.notary.validating"]
+                notary = [validating : true]
                 p2pPort 10002
                 rpcPort 10003
                 cordapps = ["net.corda:corda-finance:$corda_release_version"]
             }
             node {
                 name "O=PartyA,L=London,C=GB"
-                advertisedServices = []
                 p2pPort 10005
                 rpcPort 10006
                 webPort 10007
@@ -44,7 +42,6 @@ Let's take a look at the nodes we're going to deploy. Open the project's ``build
             }
             node {
                 name "O=PartyB,L=New York,C=US"
-                advertisedServices = []
                 p2pPort 10008
                 rpcPort 10009
                 webPort 10010
@@ -84,6 +81,7 @@ the three node folders. Each node folder has the following structure:
         |____corda-webserver.jar           // The node's webserver
         |____dependencies
         |____node.conf                     // The node's configuration file
+        |____additional-node-infos/        // Directory containing all the other nodes' addresses and identities
         |____plugins
           |____java/kotlin-source-0.1.jar  // Our IOU CorDapp
 
@@ -116,15 +114,9 @@ commands.
 
 We want to create an IOU of 100 with PartyB. We start the ``IOUFlow`` by typing:
 
-.. container:: codeset
+.. code:: bash
 
-    .. code-block:: java
-
-        start IOUFlow arg0: 99, arg1: "O=PartyB,L=New York,C=US"
-
-    .. code-block:: kotlin
-
-        start IOUFlow iouValue: 99, otherParty: "O=PartyB,L=New York,C=US"
+    start IOUFlow iouValue: 99, otherParty: "O=PartyB,L=New York,C=US"
 
 PartyA and PartyB will automatically agree an IOU. If the flow worked, it should have led to the recording of a new IOU
 in the vaults of both PartyA and PartyB.

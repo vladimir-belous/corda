@@ -43,15 +43,15 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
 
     @Before
     public void setUp() {
-        setCordappPackages("net.corda.testing.contracts", "net.corda.finance.contracts.asset");
+        List<String> cordappPackages = Arrays.asList("net.corda.testing.contracts", "net.corda.finance.contracts.asset");
         ArrayList<KeyPair> keys = new ArrayList<>();
         keys.add(getMEGA_CORP_KEY());
         keys.add(getDUMMY_NOTARY_KEY());
         Set<MappedSchema> requiredSchemas = Collections.singleton(CashSchemaV1.INSTANCE);
         IdentityService identitySvc = makeTestIdentityService();
         @SuppressWarnings("unchecked")
-        Pair<CordaPersistence, MockServices> databaseAndServices = makeTestDatabaseAndMockServices(requiredSchemas, keys, () -> identitySvc, Collections.EMPTY_LIST);
-        issuerServices = new MockServices(getDUMMY_CASH_ISSUER_KEY(), getBOC_KEY());
+        Pair<CordaPersistence, MockServices> databaseAndServices = makeTestDatabaseAndMockServices(requiredSchemas, keys, () -> identitySvc, cordappPackages);
+        issuerServices = new MockServices(cordappPackages, getDUMMY_CASH_ISSUER_KEY(), getBOC_KEY());
         database = databaseAndServices.getFirst();
         services = databaseAndServices.getSecond();
         vaultService = services.getVaultService();
@@ -60,7 +60,6 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
     @After
     public void cleanUp() throws IOException {
         database.close();
-        unsetCordappPackages();
     }
 
     /**
@@ -91,10 +90,10 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
     @Test
     public void unconsumedStatesForStateRefsSortedByTxnId() {
         Vault<LinearState> issuedStates =
-            database.transaction(tx -> {
-                VaultFiller.fillWithSomeTestLinearStates(services, 8);
-                return VaultFiller.fillWithSomeTestLinearStates(services, 2);
-            });
+                database.transaction(tx -> {
+                    VaultFiller.fillWithSomeTestLinearStates(services, 8);
+                    return VaultFiller.fillWithSomeTestLinearStates(services, 2);
+                });
         database.transaction(tx -> {
             Stream<StateRef> stateRefsStream = StreamSupport.stream(issuedStates.getStates().spliterator(), false).map(StateAndRef::getRef);
             List<StateRef> stateRefs = stateRefsStream.collect(Collectors.toList());
@@ -120,7 +119,7 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
         database.transaction(tx -> {
             VaultFiller.fillWithSomeTestCash(services,
                     new Amount<Currency>(100, Currency.getInstance("USD")),
-                                 issuerServices,
+                    issuerServices,
                     TestConstants.getDUMMY_NOTARY(),
                     3,
                     3,
@@ -151,14 +150,14 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
         List<String> dealIds = Arrays.asList("123", "456", "789");
         @SuppressWarnings("unchecked")
         Triple<StateAndRef<LinearState>, UniqueIdentifier, Vault<DealState>> ids =
-            database.transaction((DatabaseTransaction tx) -> {
-                Vault<LinearState> states = VaultFiller.fillWithSomeTestLinearStates(services, 10, null);
-                StateAndRef<LinearState> linearState = states.getStates().iterator().next();
-                UniqueIdentifier uid = linearState.component1().getData().getLinearId();
+                database.transaction((DatabaseTransaction tx) -> {
+                    Vault<LinearState> states = VaultFiller.fillWithSomeTestLinearStates(services, 10, null);
+                    StateAndRef<LinearState> linearState = states.getStates().iterator().next();
+                    UniqueIdentifier uid = linearState.component1().getData().getLinearId();
 
-                Vault<DealState> dealStates = VaultFiller.fillWithSomeTestDeals(services, dealIds);
-                return new Triple(linearState,uid,dealStates);
-            });
+                    Vault<DealState> dealStates = VaultFiller.fillWithSomeTestDeals(services, dealIds);
+                    return new Triple(linearState, uid, dealStates);
+                });
         database.transaction(tx -> {
             // consume states
             VaultFiller.consumeDeals(services, (List<? extends StateAndRef<? extends DealState>>) ids.getThird().getStates(), getDUMMY_NOTARY());
@@ -276,13 +275,13 @@ public class VaultQueryJavaTests extends TestDependencyInjectionBase {
     public void trackDealStatesPagedSorted() {
         List<String> dealIds = Arrays.asList("123", "456", "789");
         UniqueIdentifier uid =
-            database.transaction(tx -> {
-                Vault<LinearState> states = VaultFiller.fillWithSomeTestLinearStates(services, 10, null);
-                UniqueIdentifier _uid = states.getStates().iterator().next().component1().getData().getLinearId();
+                database.transaction(tx -> {
+                    Vault<LinearState> states = VaultFiller.fillWithSomeTestLinearStates(services, 10, null);
+                    UniqueIdentifier _uid = states.getStates().iterator().next().component1().getData().getLinearId();
 
-                VaultFiller.fillWithSomeTestDeals(services, dealIds);
-                return _uid;
-            });
+                    VaultFiller.fillWithSomeTestDeals(services, dealIds);
+                    return _uid;
+                });
         database.transaction(tx -> {
             // DOCSTART VaultJavaQueryExample5
             @SuppressWarnings("unchecked")

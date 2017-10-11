@@ -6,6 +6,7 @@ import net.corda.core.crypto.generateKeyPair
 import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.AnonymousParty
 import net.corda.core.identity.Party
+import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.VaultService
 import net.corda.core.node.services.queryBy
 import net.corda.core.transactions.TransactionBuilder
@@ -105,7 +106,7 @@ class CashTests : TestDependencyInjectionBase() {
             }
             tweak {
                 output(Cash.PROGRAM_ID) { outState }
-                output(Cash.PROGRAM_ID) { outState `issued by` MINI_CORP }
+                output(Cash.PROGRAM_ID) { outState issuedBy MINI_CORP }
                 command(ALICE_PUBKEY) { Cash.Commands.Move() }
                 this `fails with` "at least one cash input"
             }
@@ -309,7 +310,7 @@ class CashTests : TestDependencyInjectionBase() {
         transaction {
             attachment(Cash.PROGRAM_ID)
             input(Cash.PROGRAM_ID) { inState }
-            output(Cash.PROGRAM_ID) { outState `issued by` MINI_CORP }
+            output(Cash.PROGRAM_ID) { outState issuedBy MINI_CORP }
             command(ALICE_PUBKEY) { Cash.Commands.Move() }
             this `fails with` "the amounts balance"
         }
@@ -348,7 +349,7 @@ class CashTests : TestDependencyInjectionBase() {
         transaction {
             attachment(Cash.PROGRAM_ID)
             input(Cash.PROGRAM_ID) { inState }
-            input(Cash.PROGRAM_ID) { inState `issued by` MINI_CORP }
+            input(Cash.PROGRAM_ID) { inState issuedBy MINI_CORP }
             output(Cash.PROGRAM_ID) { outState }
             command(ALICE_PUBKEY) { Cash.Commands.Move() }
             this `fails with` "the amounts balance"
@@ -396,9 +397,9 @@ class CashTests : TestDependencyInjectionBase() {
         transaction {
             attachment(Cash.PROGRAM_ID)
             input(Cash.PROGRAM_ID) { issuerInState }
-            input(Cash.PROGRAM_ID) { issuerInState.copy(owner = MINI_CORP) `issued by` MINI_CORP }
+            input(Cash.PROGRAM_ID) { issuerInState.copy(owner = MINI_CORP) issuedBy MINI_CORP }
 
-            output(Cash.PROGRAM_ID) { issuerInState.copy(amount = issuerInState.amount - (200.DOLLARS `issued by` defaultIssuer)) `issued by` MINI_CORP }
+            output(Cash.PROGRAM_ID) { issuerInState.copy(amount = issuerInState.amount - (200.DOLLARS `issued by` defaultIssuer)) issuedBy MINI_CORP }
             output(Cash.PROGRAM_ID) { issuerInState.copy(owner = MINI_CORP, amount = issuerInState.amount - (200.DOLLARS `issued by` defaultIssuer)) }
 
             command(MEGA_CORP_PUBKEY, MINI_CORP_PUBKEY) { Cash.Commands.Move() }
@@ -432,7 +433,7 @@ class CashTests : TestDependencyInjectionBase() {
             attachment(Cash.PROGRAM_ID)
             // Gather 2000 dollars from two different issuers.
             input(Cash.PROGRAM_ID) { inState }
-            input(Cash.PROGRAM_ID) { inState `issued by` MINI_CORP }
+            input(Cash.PROGRAM_ID) { inState issuedBy MINI_CORP }
             command(ALICE_PUBKEY) { Cash.Commands.Move() }
 
             // Can't merge them together.
@@ -449,7 +450,7 @@ class CashTests : TestDependencyInjectionBase() {
 
             // This works.
             output(Cash.PROGRAM_ID) { inState.copy(owner = AnonymousParty(BOB_PUBKEY)) }
-            output(Cash.PROGRAM_ID) { inState.copy(owner = AnonymousParty(BOB_PUBKEY)) `issued by` MINI_CORP }
+            output(Cash.PROGRAM_ID) { inState.copy(owner = AnonymousParty(BOB_PUBKEY)) issuedBy MINI_CORP }
             this.verifies()
         }
     }
@@ -460,10 +461,10 @@ class CashTests : TestDependencyInjectionBase() {
         transaction {
             attachment(Cash.PROGRAM_ID)
             val pounds = Cash.State(658.POUNDS `issued by` MINI_CORP.ref(3, 4, 5), AnonymousParty(BOB_PUBKEY))
-            input(Cash.PROGRAM_ID) { inState `owned by` AnonymousParty(ALICE_PUBKEY) }
+            input(Cash.PROGRAM_ID) { inState ownedBy AnonymousParty(ALICE_PUBKEY) }
             input(Cash.PROGRAM_ID) { pounds }
-            output(Cash.PROGRAM_ID) { inState `owned by` AnonymousParty(BOB_PUBKEY) }
-            output(Cash.PROGRAM_ID) { pounds `owned by` AnonymousParty(ALICE_PUBKEY) }
+            output(Cash.PROGRAM_ID) { inState ownedBy AnonymousParty(BOB_PUBKEY) }
+            output(Cash.PROGRAM_ID) { pounds ownedBy AnonymousParty(ALICE_PUBKEY) }
             command(ALICE_PUBKEY, BOB_PUBKEY) { Cash.Commands.Move() }
 
             this.verifies()
@@ -480,9 +481,9 @@ class CashTests : TestDependencyInjectionBase() {
     val THEIR_IDENTITY_1 = AnonymousParty(MINI_CORP_PUBKEY)
     val THEIR_IDENTITY_2 = AnonymousParty(CHARLIE_PUBKEY)
 
-    fun makeCash(amount: Amount<Currency>, corp: Party, depositRef: Byte = 1) =
+    fun makeCash(amount: Amount<Currency>, issuer: AbstractParty, depositRef: Byte = 1) =
             StateAndRef(
-                    TransactionState<Cash.State>(Cash.State(amount `issued by` corp.ref(depositRef), OUR_IDENTITY_1), Cash.PROGRAM_ID, DUMMY_NOTARY),
+                    TransactionState<Cash.State>(Cash.State(amount `issued by` issuer.ref(depositRef), OUR_IDENTITY_1), Cash.PROGRAM_ID, DUMMY_NOTARY),
                     StateRef(SecureHash.randomSHA256(), Random().nextInt(32))
             )
 
@@ -496,10 +497,11 @@ class CashTests : TestDependencyInjectionBase() {
     /**
      * Generate an exit transaction, removing some amount of cash from the ledger.
      */
-    private fun makeExit(amount: Amount<Currency>, corp: Party, depositRef: Byte = 1): WireTransaction {
+    private fun makeExit(serviceHub: ServiceHub, amount: Amount<Currency>, issuer: Party, depositRef: Byte = 1): WireTransaction {
         val tx = TransactionBuilder(DUMMY_NOTARY)
-        Cash().generateExit(tx, Amount(amount.quantity, Issued(corp.ref(depositRef), amount.token)), WALLET)
-        return tx.toWireTransaction(miniCorpServices)
+        val payChangeTo = serviceHub.keyManagementService.freshKeyAndCert(MINI_CORP_IDENTITY, false).party
+        Cash().generateExit(tx, Amount(amount.quantity, Issued(issuer.ref(depositRef), amount.token)), WALLET, payChangeTo)
+        return tx.toWireTransaction(serviceHub)
     }
 
     private fun makeSpend(amount: Amount<Currency>, dest: AbstractParty): WireTransaction {
@@ -516,7 +518,7 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generateSimpleExit() {
         initialiseTestSerialization()
-        val wtx = makeExit(100.DOLLARS, MEGA_CORP, 1)
+        val wtx = makeExit(miniCorpServices, 100.DOLLARS, MEGA_CORP, 1)
         assertEquals(WALLET[0].ref, wtx.inputs[0])
         assertEquals(0, wtx.outputs.size)
 
@@ -532,10 +534,16 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generatePartialExit() {
         initialiseTestSerialization()
-        val wtx = makeExit(50.DOLLARS, MEGA_CORP, 1)
-        assertEquals(WALLET[0].ref, wtx.inputs[0])
-        assertEquals(1, wtx.outputs.size)
-        assertEquals(WALLET[0].state.data.copy(amount = WALLET[0].state.data.amount.splitEvenly(2).first()), wtx.getOutput(0))
+        val wtx = makeExit(miniCorpServices, 50.DOLLARS, MEGA_CORP, 1)
+        val actualInput = wtx.inputs.single()
+        // Filter the available inputs and confirm exactly one has been used
+        val expectedInputs = WALLET.filter { it.ref == actualInput }
+        assertEquals(1, expectedInputs.size)
+        val inputState = expectedInputs.single()
+        val actualChange = wtx.outputs.single().data as Cash.State
+        val expectedChangeAmount = (inputState.state.data as Cash.State).amount.quantity - 50.DOLLARS.quantity
+        val expectedChange = WALLET[0].state.data.copy(amount = WALLET[0].state.data.amount.copy(quantity = expectedChangeAmount), owner = actualChange.owner)
+        assertEquals(expectedChange, wtx.getOutput(0))
     }
 
     /**
@@ -544,7 +552,7 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generateAbsentExit() {
         initialiseTestSerialization()
-        assertFailsWith<InsufficientBalanceException> { makeExit(100.POUNDS, MEGA_CORP, 1) }
+        assertFailsWith<InsufficientBalanceException> { makeExit(miniCorpServices, 100.POUNDS, MEGA_CORP, 1) }
     }
 
     /**
@@ -553,7 +561,7 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generateInvalidReferenceExit() {
         initialiseTestSerialization()
-        assertFailsWith<InsufficientBalanceException> { makeExit(100.POUNDS, MEGA_CORP, 2) }
+        assertFailsWith<InsufficientBalanceException> { makeExit(miniCorpServices, 100.POUNDS, MEGA_CORP, 2) }
     }
 
     /**
@@ -562,7 +570,7 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generateInsufficientExit() {
         initialiseTestSerialization()
-        assertFailsWith<InsufficientBalanceException> { makeExit(1000.DOLLARS, MEGA_CORP, 1) }
+        assertFailsWith<InsufficientBalanceException> { makeExit(miniCorpServices, 1000.DOLLARS, MEGA_CORP, 1) }
     }
 
     /**
@@ -571,7 +579,7 @@ class CashTests : TestDependencyInjectionBase() {
     @Test
     fun generateOwnerWithNoStatesExit() {
         initialiseTestSerialization()
-        assertFailsWith<InsufficientBalanceException> { makeExit(100.POUNDS, CHARLIE, 1) }
+        assertFailsWith<InsufficientBalanceException> { makeExit(miniCorpServices, 100.POUNDS, CHARLIE, 1) }
     }
 
     /**
@@ -590,9 +598,9 @@ class CashTests : TestDependencyInjectionBase() {
     fun generateSimpleDirectSpend() {
         initialiseTestSerialization()
         val wtx =
-           database.transaction {
-                makeSpend(100.DOLLARS, THEIR_IDENTITY_1)
-            }
+                database.transaction {
+                    makeSpend(100.DOLLARS, THEIR_IDENTITY_1)
+                }
         database.transaction {
             val vaultState = vaultStatesUnconsumed.elementAt(0)
             assertEquals(vaultState.ref, wtx.inputs[0])
@@ -617,9 +625,9 @@ class CashTests : TestDependencyInjectionBase() {
     fun generateSimpleSpendWithChange() {
         initialiseTestSerialization()
         val wtx =
-            database.transaction {
-                makeSpend(10.DOLLARS, THEIR_IDENTITY_1)
-            }
+                database.transaction {
+                    makeSpend(10.DOLLARS, THEIR_IDENTITY_1)
+                }
         database.transaction {
             val vaultState = vaultStatesUnconsumed.elementAt(0)
             val changeAmount = 90.DOLLARS `issued by` defaultIssuer
@@ -643,9 +651,9 @@ class CashTests : TestDependencyInjectionBase() {
     fun generateSpendWithTwoInputs() {
         initialiseTestSerialization()
         val wtx =
-            database.transaction {
-                makeSpend(500.DOLLARS, THEIR_IDENTITY_1)
-            }
+                database.transaction {
+                    makeSpend(500.DOLLARS, THEIR_IDENTITY_1)
+                }
         database.transaction {
             val vaultState0 = vaultStatesUnconsumed.elementAt(0)
             val vaultState1 = vaultStatesUnconsumed.elementAt(1)
@@ -660,11 +668,11 @@ class CashTests : TestDependencyInjectionBase() {
     fun generateSpendMixedDeposits() {
         initialiseTestSerialization()
         val wtx =
-            database.transaction {
-                val wtx = makeSpend(580.DOLLARS, THEIR_IDENTITY_1)
-                assertEquals(3, wtx.inputs.size)
-                wtx
-            }
+                database.transaction {
+                    val wtx = makeSpend(580.DOLLARS, THEIR_IDENTITY_1)
+                    assertEquals(3, wtx.inputs.size)
+                    wtx
+                }
         database.transaction {
             val vaultState0: StateAndRef<Cash.State> = vaultStatesUnconsumed.elementAt(0)
             val vaultState1: StateAndRef<Cash.State> = vaultStatesUnconsumed.elementAt(1)
@@ -718,8 +726,8 @@ class CashTests : TestDependencyInjectionBase() {
                 Cash.State(1000.POUNDS `issued by` MINI_CORP.ref(3), MEGA_CORP).amount.token)
 
         // States cannot be aggregated if the reference differs
-        assertNotEquals(fiveThousandDollarsFromMega.amount.token, (fiveThousandDollarsFromMega `with deposit` defaultIssuer).amount.token)
-        assertNotEquals((fiveThousandDollarsFromMega `with deposit` defaultIssuer).amount.token, fiveThousandDollarsFromMega.amount.token)
+        assertNotEquals(fiveThousandDollarsFromMega.amount.token, (fiveThousandDollarsFromMega withDeposit defaultIssuer).amount.token)
+        assertNotEquals((fiveThousandDollarsFromMega withDeposit defaultIssuer).amount.token, fiveThousandDollarsFromMega.amount.token)
     }
 
     @Test
@@ -796,7 +804,7 @@ class CashTests : TestDependencyInjectionBase() {
             transaction {
                 attachment(Cash.PROGRAM_ID)
                 input("MEGA_CORP cash")
-                output(Cash.PROGRAM_ID, "MEGA_CORP cash 2", "MEGA_CORP cash".output<Cash.State>().copy(owner = AnonymousParty(ALICE_PUBKEY)) )
+                output(Cash.PROGRAM_ID, "MEGA_CORP cash 2", "MEGA_CORP cash".output<Cash.State>().copy(owner = AnonymousParty(ALICE_PUBKEY)))
                 command(MEGA_CORP_PUBKEY) { Cash.Commands.Move() }
                 this.verifies()
             }

@@ -2,20 +2,14 @@ package net.corda.node.services.config
 
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.utilities.NetworkHostAndPort
+import net.corda.core.utilities.seconds
 import net.corda.node.internal.NetworkMapInfo
 import net.corda.node.services.messaging.CertificateChainCheckPolicy
 import net.corda.nodeapi.User
 import net.corda.nodeapi.config.NodeSSLConfiguration
-import net.corda.nodeapi.config.OldConfig
-import net.corda.nodeapi.internal.ServiceInfo
 import java.net.URL
 import java.nio.file.Path
 import java.util.*
-
-/** @param exposeRaces for testing only, so its default is not in reference.conf but here. */
-data class BFTSMaRtConfiguration(val replicaId: Int, val debug: Boolean, val exposeRaces: Boolean = false) {
-    fun isValid() = replicaId >= 0
-}
 
 interface NodeConfiguration : NodeSSLConfiguration {
     // myLegalName should be only used in the initial network registration, we should use the name from the certificate instead of this.
@@ -37,17 +31,32 @@ interface NodeConfiguration : NodeSSLConfiguration {
     val certificateChainCheckPolicies: List<CertChainPolicyConfig>
     val verifierType: VerifierType
     val messageRedeliveryDelaySeconds: Int
-    val bftSMaRt: BFTSMaRtConfiguration
-    val notaryNodeAddress: NetworkHostAndPort?
-    val notaryClusterAddresses: List<NetworkHostAndPort>
+    val notary: NotaryConfig?
     val activeMQServer: ActiveMqServerConfiguration
+    val additionalNodeInfoPollingFrequencyMsec: Long
 }
 
-data class BridgeConfiguration(
-        val retryIntervalMs: Long,
-        val maxRetryIntervalMin: Long,
-        val retryIntervalMultiplier: Double
-)
+data class NotaryConfig(val validating: Boolean, val raft: RaftConfig? = null, val bftSMaRt: BFTSMaRtConfiguration? = null) {
+    init {
+        require(raft == null || bftSMaRt == null) { "raft and bftSMaRt configs cannot be specified together" }
+    }
+}
+
+data class RaftConfig(val nodeAddress: NetworkHostAndPort, val clusterAddresses: List<NetworkHostAndPort>)
+
+/** @param exposeRaces for testing only, so its default is not in reference.conf but here. */
+data class BFTSMaRtConfiguration constructor(val replicaId: Int,
+                                 val clusterAddresses: List<NetworkHostAndPort>,
+                                 val debug: Boolean = false,
+                                 val exposeRaces: Boolean = false) {
+    init {
+        require(replicaId >= 0) { "replicaId cannot be negative" }
+    }
+}
+
+data class BridgeConfiguration(val retryIntervalMs: Long,
+                               val maxRetryIntervalMin: Long,
+                               val retryIntervalMultiplier: Double)
 
 data class ActiveMqServerConfiguration(val bridge: BridgeConfiguration)
 
@@ -67,21 +76,18 @@ data class FullNodeConfiguration(
         override val verifierType: VerifierType,
         override val messageRedeliveryDelaySeconds: Int = 30,
         val useHTTPS: Boolean,
-        @OldConfig("artemisAddress")
         val p2pAddress: NetworkHostAndPort,
         val rpcAddress: NetworkHostAndPort?,
         // TODO This field is slightly redundant as p2pAddress is sufficient to hold the address of the node's MQ broker.
         // Instead this should be a Boolean indicating whether that broker is an internal one started by the node or an external one
         val messagingServerAddress: NetworkHostAndPort?,
-        val extraAdvertisedServiceIds: List<String>,
-        override val bftSMaRt: BFTSMaRtConfiguration,
-        override val notaryNodeAddress: NetworkHostAndPort?,
-        override val notaryClusterAddresses: List<NetworkHostAndPort>,
+        override val notary: NotaryConfig?,
         override val certificateChainCheckPolicies: List<CertChainPolicyConfig>,
         override val devMode: Boolean = false,
         val useTestClock: Boolean = false,
         val detectPublicIp: Boolean = true,
-        override val activeMQServer: ActiveMqServerConfiguration
+        override val activeMQServer: ActiveMqServerConfiguration,
+        override val additionalNodeInfoPollingFrequencyMsec: Long = 5.seconds.toMillis()
 ) : NodeConfiguration {
     override val exportJMXto: String get() = "http"
 
@@ -94,13 +100,6 @@ data class FullNodeConfiguration(
         }
         require(myLegalName.commonName == null) { "Common name must be null: $myLegalName" }
         require(minimumPlatformVersion >= 1) { "minimumPlatformVersion cannot be less than 1" }
-    }
-
-    fun calculateServices(): Set<ServiceInfo> {
-        return extraAdvertisedServiceIds
-                .filter(String::isNotBlank)
-                .map { ServiceInfo.parse(it) }
-                .toSet()
     }
 }
 
@@ -117,12 +116,13 @@ enum class CertChainPolicyType {
 }
 
 data class CertChainPolicyConfig(val role: String, private val policy: CertChainPolicyType, private val trustedAliases: Set<String>) {
-    val certificateChainCheckPolicy: CertificateChainCheckPolicy get() {
-        return when (policy) {
-            CertChainPolicyType.Any -> CertificateChainCheckPolicy.Any
-            CertChainPolicyType.RootMustMatch -> CertificateChainCheckPolicy.RootMustMatch
-            CertChainPolicyType.LeafMustMatch -> CertificateChainCheckPolicy.LeafMustMatch
-            CertChainPolicyType.MustContainOneOf -> CertificateChainCheckPolicy.MustContainOneOf(trustedAliases)
+    val certificateChainCheckPolicy: CertificateChainCheckPolicy
+        get() {
+            return when (policy) {
+                CertChainPolicyType.Any -> CertificateChainCheckPolicy.Any
+                CertChainPolicyType.RootMustMatch -> CertificateChainCheckPolicy.RootMustMatch
+                CertChainPolicyType.LeafMustMatch -> CertificateChainCheckPolicy.LeafMustMatch
+                CertChainPolicyType.MustContainOneOf -> CertificateChainCheckPolicy.MustContainOneOf(trustedAliases)
+            }
         }
-    }
 }

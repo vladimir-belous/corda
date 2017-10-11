@@ -12,7 +12,6 @@ import net.corda.node.services.transactions.bftSMaRtSerialFilter
 import net.corda.node.shell.InteractiveShell
 import net.corda.node.utilities.registration.HTTPNetworkRegistrationService
 import net.corda.node.utilities.registration.NetworkRegistrationHelper
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.nodeapi.internal.addShutdownHook
 import org.fusesource.jansi.Ansi
 import org.fusesource.jansi.AnsiConsole
@@ -86,20 +85,17 @@ open class NodeStartup(val args: Array<String>) {
 
     open protected fun preNetworkRegistration(conf: FullNodeConfiguration) = Unit
 
-    open protected fun createNode(conf: FullNodeConfiguration, versionInfo: VersionInfo, services: Set<ServiceInfo>): Node {
-        return Node(conf, services, versionInfo)
-    }
+    open protected fun createNode(conf: FullNodeConfiguration, versionInfo: VersionInfo): Node = Node(conf, versionInfo)
 
     open protected fun startNode(conf: FullNodeConfiguration, versionInfo: VersionInfo, startTime: Long, cmdlineOptions: CmdLineOptions) {
-        val advertisedServices = conf.calculateServices()
-        val node = createNode(conf, versionInfo, advertisedServices)
+        val node = createNode(conf, versionInfo)
         if (cmdlineOptions.justGenerateNodeInfo) {
             // Perform the minimum required start-up logic to be able to write a nodeInfo to disk
             node.generateNodeInfo()
             return
         }
         val startedNode = node.start()
-        printPluginsAndServices(startedNode.internals)
+        Node.printBasicNodeInfo("Loaded CorDapps", startedNode.internals.cordappProvider.cordapps.joinToString { it.name })
         startedNode.internals.nodeReadyFuture.thenMatch({
             val elapsed = (System.currentTimeMillis() - startTime) / 10 / 100.0
             val name = startedNode.info.legalIdentitiesAndCerts.first().name.organisation
@@ -110,14 +106,14 @@ open class NodeStartup(val args: Array<String>) {
             startedNode.internals.startupComplete.then {
                 try {
                     InteractiveShell.startShell(cmdlineOptions.baseDirectory, runShell, cmdlineOptions.sshdServer, startedNode)
-                } catch(e: Throwable) {
+                } catch (e: Throwable) {
                     logger.error("Shell failed to start", e)
                 }
             }
         },
-        {
-            th -> logger.error("Unexpected exception during registration", th)
-        })
+                { th ->
+                    logger.error("Unexpected exception during registration", th)
+                })
         startedNode.internals.run()
     }
 
@@ -165,7 +161,7 @@ open class NodeStartup(val args: Array<String>) {
     }
 
     open protected fun banJavaSerialisation(conf: FullNodeConfiguration) {
-        SerialFilter.install(if (conf.bftSMaRt.isValid()) ::bftSMaRtSerialFilter else ::defaultSerialFilter)
+        SerialFilter.install(if (conf.notary?.bftSMaRt != null) ::bftSMaRtSerialFilter else ::defaultSerialFilter)
     }
 
     open protected fun getVersionInfo(): VersionInfo {
@@ -261,13 +257,6 @@ open class NodeStartup(val args: Array<String>) {
         } catch (e: ArrayIndexOutOfBoundsException) {
             Node.failStartUp("You are using a version of Java that is not supported (${System.getProperty("java.version")}). Please upgrade to the latest version.")
         }
-    }
-
-    private fun printPluginsAndServices(node: Node) {
-        node.configuration.extraAdvertisedServiceIds.filter { it.startsWith("corda.notary.") }.let {
-            if (it.isNotEmpty()) Node.printBasicNodeInfo("Providing additional services", it.joinToString())
-        }
-        Node.printBasicNodeInfo("Loaded CorDapps", node.cordappProvider.cordapps.joinToString { it.name })
     }
 
     open fun drawBanner(versionInfo: VersionInfo) {

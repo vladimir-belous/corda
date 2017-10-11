@@ -13,6 +13,7 @@ import net.corda.core.messaging.DataFeed
 import net.corda.core.messaging.SingleMessageRecipient
 import net.corda.core.node.NodeInfo
 import net.corda.core.node.services.NetworkMapCache.MapChange
+import net.corda.core.node.services.NotaryService
 import net.corda.core.node.services.PartyInfo
 import net.corda.core.schemas.NodeInfoSchemaV1
 import net.corda.core.serialization.SingletonSerializeAsToken
@@ -38,6 +39,7 @@ import rx.Observable
 import rx.subjects.PublishSubject
 import java.security.PublicKey
 import java.security.SignatureException
+import java.time.Duration
 import java.util.*
 import javax.annotation.concurrent.ThreadSafe
 import kotlin.collections.HashMap
@@ -81,14 +83,13 @@ open class PersistentNetworkMapCache(private val serviceHub: ServiceHubInternal)
                         //       Notary certificates have to be signed by the doorman directly
                         it.legalIdentities
                     }
-                    .filter {
-                        it.name.toString().contains("corda.notary", true)
-                    }
-                    .distinct() // Distinct, because of distributed service nodes
+                    .filter { it.name.commonName?.startsWith(NotaryService.ID_PREFIX) ?: false }
+                    .toSet() // Distinct, because of distributed service nodes
                     .sortedBy { it.name.toString() }
         }
 
-    private val nodeInfoSerializer = NodeInfoWatcher(serviceHub.configuration.baseDirectory)
+    private val nodeInfoSerializer = NodeInfoWatcher(serviceHub.configuration.baseDirectory,
+            serviceHub.configuration.additionalNodeInfoPollingFrequencyMsec)
 
     init {
         loadFromFiles()
@@ -119,6 +120,7 @@ open class PersistentNetworkMapCache(private val serviceHub: ServiceHubInternal)
     override fun getNodesByLegalName(name: CordaX500Name): List<NodeInfo> = serviceHub.database.transaction { queryByLegalName(name) }
     override fun getNodesByLegalIdentityKey(identityKey: PublicKey): List<NodeInfo> =
             serviceHub.database.transaction { queryByIdentityKey(identityKey) }
+
     override fun getNodeByLegalIdentity(party: AbstractParty): NodeInfo? {
         val wellKnownParty = serviceHub.identityService.wellKnownPartyFromAnonymous(party)
         return wellKnownParty?.let {

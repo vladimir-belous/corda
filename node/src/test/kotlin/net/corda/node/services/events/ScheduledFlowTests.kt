@@ -16,8 +16,6 @@ import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.getOrThrow
 import net.corda.node.internal.StartedNode
 import net.corda.node.services.statemachine.StateMachineManager
-import net.corda.node.services.transactions.ValidatingNotaryService
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
 import net.corda.testing.contracts.DummyContract
 import net.corda.testing.node.MockNetwork
@@ -93,11 +91,8 @@ class ScheduledFlowTests {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.testing.contracts")
-        mockNet = MockNetwork(threadPerNode = true)
-        notaryNode = mockNet.createNode(
-                legalName = DUMMY_NOTARY.name,
-                advertisedServices = *arrayOf(ServiceInfo(ValidatingNotaryService.type)))
+        mockNet = MockNetwork(threadPerNode = true, cordappPackages = listOf("net.corda.testing.contracts"))
+        notaryNode = mockNet.createNotaryNode(legalName = DUMMY_NOTARY.name)
         val a = mockNet.createUnstartedNode()
         val b = mockNet.createUnstartedNode()
 
@@ -111,7 +106,6 @@ class ScheduledFlowTests {
     @After
     fun cleanUp() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test
@@ -157,7 +151,7 @@ class ScheduledFlowTests {
         val statesFromB: List<StateAndRef<ScheduledState>> = nodeB.database.transaction {
             queryStatesWithPaging(nodeB.services.vaultService)
         }
-        assertEquals("Expect all states to be present",2 * N, statesFromA.count())
+        assertEquals("Expect all states to be present", 2 * N, statesFromA.count())
         statesFromA.forEach { ref ->
             if (ref !in statesFromB) {
                 throw IllegalStateException("State $ref is only present on node A.")

@@ -10,12 +10,10 @@ import net.corda.finance.DOLLARS
 import net.corda.finance.flows.CashIssueFlow
 import net.corda.finance.flows.CashPaymentFlow
 import net.corda.node.services.config.VerifierType
-import net.corda.node.services.transactions.ValidatingNotaryService
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.ALICE
 import net.corda.testing.DUMMY_NOTARY
-import net.corda.testing.driver.NetworkMapStartStrategy
 import net.corda.testing.chooseIdentity
+import net.corda.testing.driver.NetworkMapStartStrategy
 import org.junit.Test
 import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
@@ -113,11 +111,11 @@ class VerifierTests {
     @Test
     fun `single verifier works with a node`() {
         verifierDriver(
-            networkMapStartStrategy = NetworkMapStartStrategy.Dedicated(startAutomatically = true),
-            extraCordappPackagesToScan = listOf("net.corda.finance.contracts")
+                networkMapStartStrategy = NetworkMapStartStrategy.Dedicated(startAutomatically = true),
+                extraCordappPackagesToScan = listOf("net.corda.finance.contracts")
         ) {
             val aliceFuture = startNode(providedName = ALICE.name)
-            val notaryFuture = startNode(providedName = DUMMY_NOTARY.name, advertisedServices = setOf(ServiceInfo(ValidatingNotaryService.type)), verifierType = VerifierType.OutOfProcess)
+            val notaryFuture = startNotaryNode(DUMMY_NOTARY.name, verifierType = VerifierType.OutOfProcess)
             val alice = aliceFuture.get()
             val notary = notaryFuture.get()
             val notaryIdentity = notary.nodeInfo.legalIdentities[1]

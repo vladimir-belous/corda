@@ -1,6 +1,7 @@
 package net.corda.node.services.config
 
 import net.corda.core.utilities.NetworkHostAndPort
+import net.corda.core.utilities.seconds
 import net.corda.nodeapi.User
 import net.corda.testing.ALICE
 import net.corda.testing.node.MockServices.Companion.makeTestDataSourceProperties
@@ -29,13 +30,11 @@ class FullNodeConfigurationTest {
                 p2pAddress = NetworkHostAndPort("localhost", 0),
                 rpcAddress = NetworkHostAndPort("localhost", 1),
                 messagingServerAddress = null,
-                extraAdvertisedServiceIds = emptyList(),
-                bftSMaRt = BFTSMaRtConfiguration(-1, false),
-                notaryNodeAddress = null,
-                notaryClusterAddresses = emptyList(),
+                notary = null,
                 certificateChainCheckPolicies = emptyList(),
                 devMode = true,
-                activeMQServer = ActiveMqServerConfiguration(BridgeConfiguration(0, 0, 0.0)))
+                activeMQServer = ActiveMqServerConfiguration(BridgeConfiguration(0, 0, 0.0)),
+                additionalNodeInfoPollingFrequencyMsec = 5.seconds.toMillis())
 
         fun configWithRPCUsername(username: String) {
             testConfiguration.copy(rpcUsers = listOf(User(username, "pass", emptySet())))

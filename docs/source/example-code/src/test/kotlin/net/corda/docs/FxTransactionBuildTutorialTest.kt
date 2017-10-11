@@ -9,8 +9,6 @@ import net.corda.finance.contracts.getCashBalances
 import net.corda.finance.flows.CashIssueFlow
 import net.corda.finance.schemas.CashSchemaV1
 import net.corda.node.internal.StartedNode
-import net.corda.node.services.transactions.ValidatingNotaryService
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
 import net.corda.testing.node.MockNetwork
 import org.junit.After
@@ -26,13 +24,8 @@ class FxTransactionBuildTutorialTest {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.finance.contracts.asset")
-        mockNet = MockNetwork(threadPerNode = true)
-        val notaryService = ServiceInfo(ValidatingNotaryService.type)
-        mockNet.createNode(
-                legalName = DUMMY_NOTARY.name,
-                notaryIdentity = notaryService to DUMMY_NOTARY_KEY,
-                advertisedServices = *arrayOf(notaryService))
+        mockNet = MockNetwork(threadPerNode = true, cordappPackages = listOf("net.corda.finance.contracts.asset"))
+        mockNet.createNotaryNode(legalName = DUMMY_NOTARY.name)
         nodeA = mockNet.createPartyNode()
         nodeB = mockNet.createPartyNode()
         nodeA.internals.registerCustomSchemas(setOf(CashSchemaV1))
@@ -44,7 +37,6 @@ class FxTransactionBuildTutorialTest {
     @After
     fun cleanUp() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test

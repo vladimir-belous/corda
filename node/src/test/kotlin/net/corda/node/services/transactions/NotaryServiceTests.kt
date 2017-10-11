@@ -13,7 +13,6 @@ import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.getOrThrow
 import net.corda.core.utilities.seconds
 import net.corda.node.internal.StartedNode
-import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.testing.*
 import net.corda.testing.contracts.DummyContract
 import net.corda.testing.node.MockNetwork
@@ -34,11 +33,8 @@ class NotaryServiceTests {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.testing.contracts")
-        mockNet = MockNetwork()
-        notaryNode = mockNet.createNode(
-                legalName = DUMMY_NOTARY.name,
-                advertisedServices = *arrayOf(ServiceInfo(SimpleNotaryService.type)))
+        mockNet = MockNetwork(cordappPackages = listOf("net.corda.testing.contracts"))
+        notaryNode = mockNet.createNotaryNode(legalName = DUMMY_NOTARY.name, validating = false)
         clientNode = mockNet.createNode()
         mockNet.runNetwork() // Clear network map registration messages
         notaryNode.internals.ensureRegistered()
@@ -48,7 +44,6 @@ class NotaryServiceTests {
     @After
     fun cleanUp() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test

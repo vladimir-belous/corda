@@ -40,8 +40,7 @@ class ContractUpgradeFlowTest {
 
     @Before
     fun setup() {
-        setCordappPackages("net.corda.testing.contracts", "net.corda.finance.contracts.asset", "net.corda.core.flows")
-        mockNet = MockNetwork()
+        mockNet = MockNetwork(cordappPackages = listOf("net.corda.testing.contracts", "net.corda.finance.contracts.asset", "net.corda.core.flows"))
         val notaryNode = mockNet.createNotaryNode()
         aliceNode = mockNet.createPartyNode(ALICE.name)
         bobNode = mockNet.createPartyNode(BOB.name)
@@ -56,7 +55,6 @@ class ContractUpgradeFlowTest {
     @After
     fun tearDown() {
         mockNet.stopNodes()
-        unsetCordappPackages()
     }
 
     @Test
@@ -161,14 +159,14 @@ class ContractUpgradeFlowTest {
             assertFailsWith(UnexpectedFlowEndException::class) { rejectedFuture.getOrThrow() }
 
             // Party B authorise the contract state upgrade, and immediately deauthorise the same.
-            rpcB.startFlow( { stateAndRef, upgrade -> ContractUpgradeFlow.Authorise(stateAndRef, upgrade ) },
+            rpcB.startFlow({ stateAndRef, upgrade -> ContractUpgradeFlow.Authorise(stateAndRef, upgrade) },
                     btx!!.tx.outRef<ContractState>(0),
                     DummyContractV2::class.java).returnValue
-            rpcB.startFlow( { stateRef -> ContractUpgradeFlow.Deauthorise(stateRef) },
+            rpcB.startFlow({ stateRef -> ContractUpgradeFlow.Deauthorise(stateRef) },
                     btx.tx.outRef<ContractState>(0).ref).returnValue
 
             // The request is expected to be rejected because party B has subsequently deauthorised and a previously authorised upgrade.
-            val deauthorisedFuture = rpcA.startFlow( {stateAndRef, upgrade -> ContractUpgradeFlow.Initiate(stateAndRef, upgrade) },
+            val deauthorisedFuture = rpcA.startFlow({ stateAndRef, upgrade -> ContractUpgradeFlow.Initiate(stateAndRef, upgrade) },
                     atx.tx.outRef<DummyContract.State>(0),
                     DummyContractV2::class.java).returnValue
 
@@ -176,7 +174,7 @@ class ContractUpgradeFlowTest {
             assertFailsWith(UnexpectedFlowEndException::class) { deauthorisedFuture.getOrThrow() }
 
             // Party B authorise the contract state upgrade.
-            rpcB.startFlow( { stateAndRef, upgrade -> ContractUpgradeFlow.Authorise(stateAndRef, upgrade ) },
+            rpcB.startFlow({ stateAndRef, upgrade -> ContractUpgradeFlow.Authorise(stateAndRef, upgrade) },
                     btx.tx.outRef<ContractState>(0),
                     DummyContractV2::class.java).returnValue
 
