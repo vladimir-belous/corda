@@ -8,7 +8,6 @@ import net.corda.core.crypto.random63BitValue
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.identity.PartyAndCertificate
-import net.corda.core.internal.cert
 import net.corda.core.internal.concurrent.doneFuture
 import net.corda.core.internal.createDirectories
 import net.corda.core.internal.createDirectory
@@ -33,7 +32,6 @@ import net.corda.nodeapi.internal.ServiceInfo
 import net.corda.node.services.config.BFTSMaRtConfiguration
 import net.corda.node.services.config.NodeConfiguration
 import net.corda.node.services.config.NotaryConfig
-import net.corda.node.services.identity.PersistentIdentityService
 import net.corda.node.services.keys.E2ETestKeyManagementService
 import net.corda.node.services.messaging.MessagingService
 import net.corda.node.services.network.InMemoryNetworkMapService
@@ -43,7 +41,6 @@ import net.corda.node.services.transactions.BFTSMaRt
 import net.corda.node.services.transactions.InMemoryTransactionVerifierService
 import net.corda.node.utilities.AffinityExecutor
 import net.corda.node.utilities.AffinityExecutor.ServiceAffinityExecutor
-import net.corda.node.utilities.CertificateAndKeyPair
 import net.corda.testing.DUMMY_KEY_1
 import net.corda.testing.initialiseTestSerialization
 import net.corda.testing.node.MockServices.Companion.MOCK_VERSION_INFO
@@ -57,7 +54,6 @@ import java.math.BigInteger
 import java.nio.file.Path
 import java.security.KeyPair
 import java.security.PublicKey
-import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -190,15 +186,6 @@ class MockNetwork(private val networkSendManuallyPumped: Boolean = false,
                     database)
                     .start()
                     .getOrThrow()
-        }
-
-        override fun makeIdentityService(trustRoot: X509Certificate,
-                                         clientCa: CertificateAndKeyPair?,
-                                         legalIdentity: PartyAndCertificate): IdentityService {
-            val caCertificates: Array<X509Certificate> = listOf(legalIdentity.certificate, clientCa?.certificate?.cert)
-                    .filterNotNull()
-                    .toTypedArray()
-            return PersistentIdentityService(info.legalIdentitiesAndCerts, trustRoot = trustRoot, caCertificates = *caCertificates)
         }
 
         override fun makeKeyManagementService(identityService: IdentityService): KeyManagementService {
