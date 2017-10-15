@@ -1,14 +1,17 @@
 package net.corda.plugins
 
-import static org.gradle.api.tasks.SourceSet.MAIN_SOURCE_SET_NAME
 import net.corda.cordform.CordformContext
 import net.corda.cordform.CordformDefinition
 import org.apache.tools.ant.filters.FixCrLfFilter
 import org.gradle.api.DefaultTask
 import org.gradle.api.plugins.JavaPluginConvention
 import org.gradle.api.tasks.TaskAction
+
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+
+import static org.gradle.api.tasks.SourceSet.MAIN_SOURCE_SET_NAME
 
 /**
  * Creates nodes based on the configuration of this task in the gradle configuration DSL.
@@ -131,23 +134,24 @@ class Cordform extends DefaultTask {
     }
 
     private generateNodeInfos() {
-        nodes.each { Node node ->
-            def process = new ProcessBuilder("java", "-jar", Node.NODEJAR_NAME, "--just-generate-node-info")
-                    .directory(fullNodePath(node).toFile())
-                    .redirectErrorStream(true)
-                    .start()
-                    .waitFor()
-        }
+//        nodes.each { Node node ->
+//            def process = new ProcessBuilder("java", "-jar", Node.NODEJAR_NAME, "--just-generate-node-info")
+//                    .directory(fullNodePath(node).toFile())
+//                    .redirectErrorStream(true)
+//                    .start()
+//                    .waitFor()
+//        }
         for (source in nodes) {
-            for (destination in nodes) {
-                if (source.nodeDir != destination.nodeDir) {
-                    project.copy {
-                        from fullNodePath(source).toString()
-                        include 'nodeInfo-*'
-                        into fullNodePath(destination).resolve(Node.NODE_INFO_DIRECTORY).toString()
-                    }
-                }
-            }
+            Files.createDirectories(fullNodePath(source).resolve(Node.NODE_INFO_DIRECTORY))
+//            for (destination in nodes) {
+//                if (source.nodeDir != destination.nodeDir) {
+//                    project.copy {
+//                        from fullNodePath(source).toString()
+//                        include 'nodeInfo-*'
+//                        into fullNodePath(destination).resolve(Node.NODE_INFO_DIRECTORY).toString()
+//                    }
+//                }
+//            }
         }
     }
 }
