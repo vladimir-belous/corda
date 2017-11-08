@@ -9,6 +9,9 @@ Unreleased
 Support for observer/regulator nodes has returned. Read :doc:`tutorial-observer-nodes` to learn more or examine the
 interest rate swaps demo.
 
+Switched the internal peer to peer communication protocol and vault storage from kryo backed serialization to the
+internal Corda AMQP implementation
+
 Release 1.0
 -----------
 Corda 1.0 is finally here!

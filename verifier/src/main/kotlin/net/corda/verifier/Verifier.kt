@@ -99,7 +99,7 @@ class Verifier {
                      * Even though default context is set to Kryo P2P, the encoding will be adjusted depending on the incoming
                      * request received, see use of [context] in [main] method.
                      */
-                    KRYO_P2P_CONTEXT)
+                    AMQP_P2P_CONTEXT)
         }
     }
 

@@ -65,10 +65,3 @@ val AMQP_P2P_CONTEXT = SerializationContextImpl(AmqpHeaderV1_0,
         true,
         SerializationContext.UseCase.P2P)
 
-val AMQP_RPC_SERVER_CONTEXT = SerializationContextImpl(AmqpHeaderV1_0,
-        SerializationDefaults.javaClass.classLoader,
-        GlobalTransientClassWhiteList(BuiltInExceptionsWhitelist()),
-        emptyMap(),
-        true,
-        SerializationContext.UseCase.RPCServer)
-
