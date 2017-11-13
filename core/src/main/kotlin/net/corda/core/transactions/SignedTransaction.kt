@@ -216,6 +216,13 @@ data class SignedTransaction(val txBits: SerializedBytes<CoreTransaction>,
      * If [coreTransaction] is a [NotaryChangeWireTransaction], loads the input states and resolves it to a
      * [NotaryChangeLedgerTransaction] so the signatures can be verified.
      */
+    @Deprecated("Exists purely for binary compatibility, the more generic version based on StateLoader should be used instead")
+    fun resolveNotaryChangeTransaction(services: ServiceHub) = resolveNotaryChangeTransaction(services as StateLoader)
+
+    /**
+     * If [coreTransaction] is a [NotaryChangeWireTransaction], loads the input states and resolves it to a
+     * [NotaryChangeLedgerTransaction] so the signatures can be verified.
+     */
     fun resolveNotaryChangeTransaction(stateLoader: StateLoader): NotaryChangeLedgerTransaction {
         val ntx = coreTransaction as? NotaryChangeWireTransaction
                 ?: throw IllegalStateException("Expected a ${NotaryChangeWireTransaction::class.simpleName} but found ${coreTransaction::class.simpleName}")
