@@ -162,8 +162,7 @@ class ResolveTransactionsFlow(private val txHashes: Set<SecureHash>,
     // TODO: This could be done in parallel with other fetches for extra speed.
     @Suspendable
     private fun fetchMissingAttachments(downloads: List<SignedTransaction>) {
-        val attachments = downloads.flatMap {
-            val tx = it.coreTransaction
+        val attachments = downloads.map(SignedTransaction::coreTransaction).flatMap { tx ->
             when (tx) {
                 is WireTransaction -> tx.attachments
                 is ContractUpgradeWireTransaction -> listOf(tx.legacyContractAttachmentId, tx.upgradedContractAttachmentId)
