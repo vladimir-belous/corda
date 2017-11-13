@@ -74,12 +74,15 @@ data class ContractUpgradeWireTransaction(
  * A filtered version of the [ContractUpgradeWireTransaction]. In comparison with a regular [FilteredTransaction], there
  * is no flexibility on what parts of the transaction to reveal – the inputs and notary field are always visible and the
  * rest of the transaction is always hidden. Its only purpose is to hide transaction data when using a non-validating notary.
+ *
+ * @property inputs The inputs of this transaction.
+ * @property notary The notary for this transaction.
+ * @property rest Hash of the hidden components of the [ContractUpgradeWireTransaction].
  */
 @CordaSerializable
 data class ContractUpgradeFilteredTransaction(
         val inputs: List<StateRef>,
         val notary: Party,
-        /** Hash of the hidden components of the [ContractUpgradeWireTransaction]. */
         val rest: SecureHash
 ) : NamedByHash {
     override val id: SecureHash get() = serializedHash(inputs + notary).hashConcat(rest)
