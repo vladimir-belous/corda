@@ -61,6 +61,10 @@ data class SignedTransaction(val txBits: SerializedBytes<CoreTransaction>,
     /** Returns the contained [WireTransaction], or throws if this is a notary change or contract upgrade transaction. */
     val tx: WireTransaction get() = coreTransaction as WireTransaction
 
+    /** Returns the contained [NotaryChangeWireTransaction], or throws if this is a normal transaction. */
+    @Deprecated("No replacement, this is not useful outside of Corda core")
+    val notaryChangeTx: NotaryChangeWireTransaction get() = coreTransaction as NotaryChangeWireTransaction
+
     /**
      * Helper function to directly build a [FilteredTransaction] using provided filtering functions,
      * without first accessing the [WireTransaction] [tx].
