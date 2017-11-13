@@ -5,6 +5,7 @@ import net.corda.core.crypto.SecureHash
 import net.corda.core.crypto.TransactionSignature
 import net.corda.core.crypto.serializedHash
 import net.corda.core.identity.Party
+import net.corda.core.node.ServiceHub
 import net.corda.core.node.StateLoader
 import net.corda.core.serialization.CordaSerializable
 import net.corda.core.utilities.toBase58String
@@ -39,6 +40,9 @@ data class NotaryChangeWireTransaction(
      * thus input state refs will always be unique. Also, filtering doesn't apply on this type of transactions.
      */
     override val id: SecureHash by lazy { serializedHash(inputs + notary + newNotary) }
+
+    @Deprecated("Exists purely for binary compatibility, the more generic version based on StateLoader should be used instead")
+    fun resolve(services: ServiceHub, sigs: List<TransactionSignature>) = resolve(services as StateLoader, sigs)
 
     fun resolve(stateLoader: StateLoader, sigs: List<TransactionSignature>): NotaryChangeLedgerTransaction {
         val resolvedInputs = inputs.map { ref ->
