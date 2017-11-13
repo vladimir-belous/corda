@@ -13,7 +13,6 @@ import kotlin.test.assertFailsWith
 
 class VaultUpdateTests {
     private val DUMMY_PROGRAM_ID = "net.corda.core.node.VaultUpdateTests.DummyContract"
-    private val noUpdate = Vault.Update(emptySet(), emptySet())
 
     object DummyContract : Contract {
 
@@ -39,21 +38,21 @@ class VaultUpdateTests {
 
     @Test
     fun `nothing plus nothing is nothing`() {
-        val before = noUpdate
-        val after = before + noUpdate
+        val before = Vault.NoUpdate
+        val after = before + Vault.NoUpdate
         assertEquals(before, after)
     }
 
     @Test
     fun `something plus nothing is something`() {
         val before = Vault.Update<ContractState>(setOf(stateAndRef0, stateAndRef1), setOf(stateAndRef2, stateAndRef3))
-        val after = before + noUpdate
+        val after = before + Vault.NoUpdate
         assertEquals(before, after)
     }
 
     @Test
     fun `nothing plus something is something`() {
-        val before = noUpdate
+        val before = Vault.NoUpdate
         val after = before + Vault.Update<ContractState>(setOf(stateAndRef0, stateAndRef1), setOf(stateAndRef2, stateAndRef3))
         val expected = Vault.Update<ContractState>(setOf(stateAndRef0, stateAndRef1), setOf(stateAndRef2, stateAndRef3))
         assertEquals(expected, after)

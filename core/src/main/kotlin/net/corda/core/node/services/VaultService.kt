@@ -97,6 +97,12 @@ class Vault<out T : ContractState>(val states: Iterable<StateAndRef<T>>) {
         }
     }
 
+    companion object {
+        val NoUpdate = Update(emptySet(), emptySet(), type = Vault.UpdateType.GENERAL)
+        @Deprecated("Null is now used for the case where an update has no relevant parts")
+        val NoNotaryUpdate = Vault.Update(emptySet(), emptySet(), type = Vault.UpdateType.NOTARY_CHANGE)
+    }
+
     @CordaSerializable
     enum class StateStatus {
         UNCONSUMED, CONSUMED, ALL
