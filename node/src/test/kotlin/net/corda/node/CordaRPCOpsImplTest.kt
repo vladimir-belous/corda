@@ -25,8 +25,8 @@ import net.corda.finance.flows.CashIssueFlow
 import net.corda.finance.flows.CashPaymentFlow
 import net.corda.node.internal.SecureCordaRPCOps
 import net.corda.node.internal.StartedNode
-import net.corda.node.services.Permissions.Companion.startFlow
 import net.corda.node.services.Permissions.Companion.invokeRpc
+import net.corda.node.services.Permissions.Companion.startFlow
 import net.corda.node.services.messaging.CURRENT_RPC_CONTEXT
 import net.corda.node.services.messaging.RpcContext
 import net.corda.nodeapi.User
@@ -239,6 +239,18 @@ class CordaRPCOpsImplTest {
             val inputJar = Thread.currentThread().contextClassLoader.getResourceAsStream(testJar)
             val secureHash = rpc.uploadAttachment(inputJar)
             assertTrue(rpc.attachmentExists(secureHash))
+        }
+    }
+
+    @Test
+    fun `can't upload the same attachment`() {
+        withPermissions(invokeRpc(CordaRPCOps::uploadAttachment), invokeRpc(CordaRPCOps::attachmentExists)) {
+            assertThatExceptionOfType(java.nio.file.FileAlreadyExistsException::class.java).isThrownBy {
+                val inputJar1 = Thread.currentThread().contextClassLoader.getResourceAsStream(testJar)
+                val inputJar2 = Thread.currentThread().contextClassLoader.getResourceAsStream(testJar)
+                val secureHash1 = rpc.uploadAttachment(inputJar1)
+                val secureHash2 = rpc.uploadAttachment(inputJar2)
+            }
         }
     }
 

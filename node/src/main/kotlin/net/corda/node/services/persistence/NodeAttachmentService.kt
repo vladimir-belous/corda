@@ -1,18 +1,19 @@
 package net.corda.node.services.persistence
 
 import com.codahale.metrics.MetricRegistry
-import net.corda.core.internal.VisibleForTesting
 import com.google.common.hash.HashCode
 import com.google.common.hash.Hashing
 import com.google.common.hash.HashingInputStream
 import com.google.common.io.CountingInputStream
 import net.corda.core.CordaRuntimeException
-import net.corda.core.contracts.*
-import net.corda.core.internal.AbstractAttachment
+import net.corda.core.contracts.Attachment
 import net.corda.core.crypto.SecureHash
+import net.corda.core.internal.AbstractAttachment
+import net.corda.core.internal.VisibleForTesting
 import net.corda.core.node.services.AttachmentId
 import net.corda.core.node.services.AttachmentStorage
-import net.corda.core.node.services.vault.*
+import net.corda.core.node.services.vault.AttachmentQueryCriteria
+import net.corda.core.node.services.vault.AttachmentSort
 import net.corda.core.serialization.*
 import net.corda.core.utilities.loggerFor
 import net.corda.node.services.vault.HibernateAttachmentQueryCriteriaParser
@@ -20,13 +21,11 @@ import net.corda.node.utilities.DatabaseTransactionManager
 import net.corda.node.utilities.NODE_DATABASE_PREFIX
 import net.corda.node.utilities.currentDBSession
 import java.io.*
-import java.lang.Exception
 import java.nio.file.Paths
 import java.time.Instant
 import java.util.jar.JarInputStream
 import javax.annotation.concurrent.ThreadSafe
 import javax.persistence.*
-import javax.persistence.Column
 
 /**
  * Stores attachments using Hibernate to database.
@@ -195,12 +194,12 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
         if (count == 0L) {
             val attachment = NodeAttachmentService.DBAttachment(attId = id.toString(), content = bytes, uploader = uploader, filename = filename)
             session.save(attachment)
-
             attachmentCount.inc()
             log.info("Stored new attachment $id")
+            return id
+        } else {
+            throw java.nio.file.FileAlreadyExistsException(id.toString())
         }
-
-        return id
     }
 
     override fun queryAttachments(criteria: AttachmentQueryCriteria, sorting: AttachmentSort?): List<AttachmentId> {
