@@ -6,7 +6,6 @@ buildscript {
     // Our version: bump this on release.
     ext.corda_release_version = "3.0-SNAPSHOT"
     // Increment this on any release that changes public APIs anywhere in the Corda platform
-    // TODO This is going to be difficult until we have a clear separation throughout the code of what is public and what is internal
     ext.corda_platform_version = 2
     ext.gradle_plugins_version = constants.getProperty("gradlePluginsVersion")
 
