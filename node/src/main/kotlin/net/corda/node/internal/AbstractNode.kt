@@ -132,7 +132,11 @@ abstract class AbstractNode(val configuration: NodeConfiguration,
     protected val runOnStop = ArrayList<() -> Any?>()
     protected lateinit var database: CordaPersistence
     protected val _nodeReadyFuture = openFuture<Unit>()
-    protected val networkMapClient: NetworkMapClient? by lazy { configuration.compatibilityZoneURL?.let(::NetworkMapClient) }
+    protected val networkMapClient: NetworkMapClient? by lazy {
+        configuration.compatibilityZoneURL?.let {
+            NetworkMapClient(it, services.identityService.trustRoot)
+        }
+    }
 
     /** Completes once the node has successfully registered with the network map service
      * or has loaded network map data from local database */
