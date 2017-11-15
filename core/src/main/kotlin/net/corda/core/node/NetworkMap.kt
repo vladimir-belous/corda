@@ -4,9 +4,11 @@ import net.corda.core.crypto.DigitalSignature
 import net.corda.core.crypto.SecureHash
 import net.corda.core.crypto.SignedData
 import net.corda.core.identity.Party
+import net.corda.core.internal.cert
 import net.corda.core.serialization.CordaSerializable
 import net.corda.core.serialization.serialize
-import java.security.cert.CertPath
+import org.bouncycastle.cert.X509CertificateHolder
+import java.security.cert.Certificate
 import java.time.Duration
 import java.time.Instant
 
@@ -50,8 +52,8 @@ data class NetworkParameters(
 @CordaSerializable
 data class NotaryInfo(val identity: Party, val validating: Boolean)
 
-class SignedNetworkMap(networkMap: NetworkMap, val signatureAndCert: DigitalSignatureWithCertPath)
+class SignedNetworkMap(val networkMap: NetworkMap, val signatureAndCert: DigitalSignatureWithCertificate)
     : SignedData<NetworkMap>(networkMap.serialize(), signatureAndCert)
 
-class DigitalSignatureWithCertPath(val certPath: CertPath, signatureBytes: ByteArray)
-    : DigitalSignature.WithKey(certPath.certificates.first().publicKey, signatureBytes)
+class DigitalSignatureWithCertificate(val certificate: X509CertificateHolder, val signatureBytes: ByteArray)
+    : DigitalSignature.WithKey(certificate.cert.publicKey, signatureBytes)

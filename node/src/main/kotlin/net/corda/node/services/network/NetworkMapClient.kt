@@ -3,6 +3,7 @@ package net.corda.node.services.network
 import com.google.common.util.concurrent.MoreExecutors
 import net.corda.core.crypto.SecureHash
 import net.corda.core.crypto.SignedData
+import net.corda.core.internal.cert
 import net.corda.core.internal.openHttpConnection
 import net.corda.core.node.NetworkMap
 import net.corda.core.node.NetworkParameters
@@ -53,9 +54,7 @@ class NetworkMapClient(compatibilityZoneURL: URL, private val trustedRoot: X509C
         val signedNetworkMap = conn.inputStream.use { it.readBytes() }.deserialize<SignedNetworkMap>()
         val networkMap = signedNetworkMap.verified()
         // Verify certificate path is valid.
-        X509Utilities.validateCertificateChain(trustedRoot, *signedNetworkMap.signatureAndCert.certPath.certificates.toTypedArray())
-        // Ensure certificate path depth is 2, network map certificate should be issued directly from root.
-        require(signedNetworkMap.signatureAndCert.certPath.certificates.size == 2) { "Network map certificate should be issued directly from root CA." }
+        X509Utilities.validateCertificateChain(trustedRoot, signedNetworkMap.signatureAndCert.certificate.cert, trustedRoot)
         val timeout = CacheControl.parse(Headers.of(conn.headerFields.filterKeys { it != null }.mapValues { it.value.first() })).maxAgeSeconds().seconds
         return NetworkMapResponse(networkMap, timeout)
     }

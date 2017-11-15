@@ -124,8 +124,8 @@ internal class MockNetworkMapServer {
         val rootCACert = X509Utilities.createSelfSignedCACertificate(CordaX500Name(commonName = "Corda Node Root CA", organisation = "R3 LTD", locality = "London", country = "GB"), rootCAKey)
     }
 
-    private val intermediateCAKey = Crypto.generateKeyPair(X509Utilities.DEFAULT_TLS_SIGNATURE_SCHEME)
-    private val intermediateCACert = X509Utilities.createCertificate(CertificateType.INTERMEDIATE_CA, rootCACert, rootCAKey, X500Name("CN=Corda Node Intermediate CA,L=London"), intermediateCAKey.public)
+    private val networkMapKey = Crypto.generateKeyPair(X509Utilities.DEFAULT_TLS_SIGNATURE_SCHEME)
+    private val networkMapCert = X509Utilities.createCertificate(CertificateType.IDENTITY, rootCACert, rootCAKey, X500Name("CN=Corda Node Intermediate CA,L=London"), networkMapKey.public)
 
     private val nodeInfoMap = mutableMapOf<SecureHash, SignedData<NodeInfo>>()
     @POST
@@ -144,9 +144,8 @@ internal class MockNetworkMapServer {
     fun getNetworkMap(): Response {
         val networkMap = NetworkMap(nodeInfoMap.keys.map { it }, SecureHash.randomSHA256())
         val serializedNetworkMap = networkMap.serialize()
-        val signature = Crypto.doSign(intermediateCAKey.private, serializedNetworkMap.bytes)
-        val certPath = CertificateFactory.getInstance("X509").generateCertPath(listOf(intermediateCACert.cert, rootCACert.cert))
-        val signedNetworkMap = SignedNetworkMap(networkMap, DigitalSignatureWithCertPath(certPath, signature))
+        val signature = Crypto.doSign(networkMapKey.private, serializedNetworkMap.bytes)
+        val signedNetworkMap = SignedNetworkMap(networkMap, DigitalSignatureWithCertificate(networkMapCert, signature))
         return Response.ok(signedNetworkMap.serialize().bytes).header("Cache-Control", "max-age=100000").build()
     }
 
