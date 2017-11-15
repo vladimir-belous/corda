@@ -55,10 +55,6 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
             var filename: String? = null
     ) : Serializable
 
-    //companion object {
-    //  private val log = loggerFor<NodeAttachmentService>()
-    //}
-
     @VisibleForTesting
     var checkAttachmentsOnLoad = true
 
