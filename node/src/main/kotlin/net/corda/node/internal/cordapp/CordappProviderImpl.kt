@@ -2,13 +2,14 @@ package net.corda.node.internal.cordapp
 
 import com.google.common.collect.HashBiMap
 import net.corda.core.contracts.ContractClassName
-import net.corda.core.crypto.SecureHash
-import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.cordapp.Cordapp
 import net.corda.core.cordapp.CordappContext
+import net.corda.core.crypto.SecureHash
 import net.corda.core.node.services.AttachmentId
+import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.serialization.SingletonSerializeAsToken
 import java.net.URL
+import java.nio.file.FileAlreadyExistsException
 
 /**
  * Cordapp provider and store. For querying CorDapps for their attachment and vice versa.
@@ -45,7 +46,15 @@ open class CordappProviderImpl(private val cordappLoader: CordappLoader, attachm
 
     private fun loadContractsIntoAttachmentStore(attachmentStorage: AttachmentStorage): Map<SecureHash, URL> {
         val cordappsWithAttachments = cordapps.filter { !it.contractClassNames.isEmpty() }.map { it.jarPath }
-        val attachmentIds = cordappsWithAttachments.map { it.openStream().use { attachmentStorage.importAttachment(it) } }
+        val attachmentIds = cordappsWithAttachments.map {
+            val attachmentId = try {
+                attachmentStorage.importAttachment(it.openStream())
+            } catch (exception: FileAlreadyExistsException) {
+                // We don't care if a cordapp has already been installed into the vault.
+                AttachmentId.parse(exception.message!!)
+            }
+            attachmentId
+        }
         return attachmentIds.zip(cordappsWithAttachments).toMap()
     }
 

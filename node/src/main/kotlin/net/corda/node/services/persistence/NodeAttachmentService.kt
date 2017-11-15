@@ -55,9 +55,9 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
             var filename: String? = null
     ) : Serializable
 
-    companion object {
-        private val log = loggerFor<NodeAttachmentService>()
-    }
+    //companion object {
+    //  private val log = loggerFor<NodeAttachmentService>()
+    //}
 
     @VisibleForTesting
     var checkAttachmentsOnLoad = true
@@ -170,6 +170,47 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
         return import(jar, uploader, filename)
     }
 
+    companion object {
+        private val log = loggerFor<NodeAttachmentService>()
+
+        private fun checkIsAValidJAR(stream: InputStream) {
+            // Just iterate over the entries with verification enabled: should be good enough to catch mistakes.
+            // Note that JarInputStream won't throw any kind of error at all if the file stream is in fact not
+            // a ZIP! It'll just pretend it's an empty archive, which is kind of stupid but that's how it works.
+            // So we have to check to ensure we found at least one item.
+            val jar = JarInputStream(stream, true)
+            var count = 0
+            while (true) {
+                val cursor = jar.nextJarEntry ?: break
+                val entryPath = Paths.get(cursor.name)
+                // Security check to stop zips trying to escape their rightful place.
+                require(!entryPath.isAbsolute) { "Path $entryPath is absolute" }
+                require(entryPath.normalize() == entryPath) { "Path $entryPath is not normalised" }
+                require(!('\\' in cursor.name || cursor.name == "." || cursor.name == "..")) { "Bad character in $entryPath" }
+                count++
+            }
+            require(count > 0) { "Stream is either empty or not a JAR/ZIP" }
+        }
+    }
+
+    override fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray> {
+        val hs = HashingInputStream(Hashing.sha256(), jar)
+        val bytes = hs.readBytes()
+        checkIsAValidJAR(ByteArrayInputStream(bytes))
+        val id = SecureHash.SHA256(hs.hash().asBytes())
+        return Pair(id, bytes)
+    }
+
+    override fun hasAttachment(attachmentId: AttachmentId): Boolean {
+        val session = currentDBSession()
+        val criteriaBuilder = session.criteriaBuilder
+        val criteriaQuery = criteriaBuilder.createQuery(Long::class.java)
+        val attachments = criteriaQuery.from(NodeAttachmentService.DBAttachment::class.java)
+        criteriaQuery.select(criteriaBuilder.count(criteriaQuery.from(NodeAttachmentService.DBAttachment::class.java)))
+        criteriaQuery.where(criteriaBuilder.equal(attachments.get<String>(DBAttachment::attId.name), attachmentId.toString()))
+        return (session.createQuery(criteriaQuery).singleResult > 0)
+    }
+
     // TODO: PLT-147: The attachment should be randomised to prevent brute force guessing and thus privacy leaks.
     private fun import(jar: InputStream, uploader: String?, filename: String?): AttachmentId {
         require(jar !is JarInputStream)
@@ -179,19 +220,11 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
         // To do this we must pipe stream into the database without knowing its hash, which we will learn only once
         // the insert/upload is complete. We can then query to see if it's a duplicate and if so, erase, and if not
         // set the hash field of the new attachment record.
-        val hs = HashingInputStream(Hashing.sha256(), jar)
-        val bytes = hs.readBytes()
-        checkIsAValidJAR(ByteArrayInputStream(bytes))
-        val id = SecureHash.SHA256(hs.hash().asBytes())
 
-        val session = currentDBSession()
-        val criteriaBuilder = session.criteriaBuilder
-        val criteriaQuery = criteriaBuilder.createQuery(Long::class.java)
-        val attachments = criteriaQuery.from(NodeAttachmentService.DBAttachment::class.java)
-        criteriaQuery.select(criteriaBuilder.count(criteriaQuery.from(NodeAttachmentService.DBAttachment::class.java)))
-        criteriaQuery.where(criteriaBuilder.equal(attachments.get<String>(DBAttachment::attId.name), id.toString()))
-        val count = session.createQuery(criteriaQuery).singleResult
-        if (count == 0L) {
+        val (id, bytes) = getAttachmentIdAndBytes(jar)
+        if (!hasAttachment(id)) {
+            checkIsAValidJAR(ByteArrayInputStream(bytes))
+            val session = currentDBSession()
             val attachment = NodeAttachmentService.DBAttachment(attId = id.toString(), content = bytes, uploader = uploader, filename = filename)
             session.save(attachment)
             attachmentCount.inc()
@@ -226,22 +259,4 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
     }
 
 
-    private fun checkIsAValidJAR(stream: InputStream) {
-        // Just iterate over the entries with verification enabled: should be good enough to catch mistakes.
-        // Note that JarInputStream won't throw any kind of error at all if the file stream is in fact not
-        // a ZIP! It'll just pretend it's an empty archive, which is kind of stupid but that's how it works.
-        // So we have to check to ensure we found at least one item.
-        val jar = JarInputStream(stream, true)
-        var count = 0
-        while (true) {
-            val cursor = jar.nextJarEntry ?: break
-            val entryPath = Paths.get(cursor.name)
-            // Security check to stop zips trying to escape their rightful place.
-            require(!entryPath.isAbsolute) { "Path $entryPath is absolute" }
-            require(entryPath.normalize() == entryPath) { "Path $entryPath is not normalised" }
-            require(!('\\' in cursor.name || cursor.name == "." || cursor.name == "..")) { "Bad character in $entryPath" }
-            count++
-        }
-        require(count > 0) { "Stream is either empty or not a JAR/ZIP" }
-    }
 }

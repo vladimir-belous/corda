@@ -16,6 +16,7 @@ typealias AttachmentId = SecureHash
  */
 @DoNotImplement
 interface AttachmentStorage {
+
     /**
      * Returns a handle to a locally stored attachment, or null if it's not known. The handle can be used to open
      * a stream for the data, which will be a zip/jar file.
@@ -53,5 +54,19 @@ interface AttachmentStorage {
      * @return List of AttachmentId of attachment matching criteria, sorted according to given sorting parameter
      */
     fun queryAttachments(criteria: AttachmentQueryCriteria, sorting: AttachmentSort? = null): List<AttachmentId>
+
+    /**
+     * Searches for an attachment already in the store
+     * @param attachmentId The attachment Id
+     * @return true if it's in there
+     */
+    fun hasAttachment(attachmentId: AttachmentId): Boolean
+
+    /**
+     * Returns what would be the AttachmentId and also the bytes of the jar if this InputStream was saved into the Vault.
+     * @param jar The InputStream of the jar file to be potentially saved into the Vault
+     * @return Pair<AttachmentId, ByteArray> as constructed from the inbound stream
+     */
+    fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray>
 }
 
