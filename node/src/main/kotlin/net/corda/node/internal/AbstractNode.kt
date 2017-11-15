@@ -26,6 +26,7 @@ import net.corda.core.utilities.debug
 import net.corda.core.utilities.getOrThrow
 import net.corda.node.VersionInfo
 import net.corda.node.internal.classloading.requireAnnotation
+import net.corda.node.internal.cordapp.CordappConfigFileProvider
 import net.corda.node.internal.cordapp.CordappLoader
 import net.corda.node.internal.cordapp.CordappProviderImpl
 import net.corda.node.internal.cordapp.CordappProviderInternal
@@ -497,7 +498,7 @@ abstract class AbstractNode(val configuration: NodeConfiguration,
         checkpointStorage = DBCheckpointStorage()
         val metrics = MetricRegistry()
         attachments = NodeAttachmentService(metrics)
-        val cordappProvider = CordappProviderImpl(cordappLoader, attachments)
+        val cordappProvider = CordappProviderImpl(cordappLoader, CordappConfigFileProvider(), attachments)
         val identityService = makeIdentityService()
         val keyManagementService = makeKeyManagementService(identityService, keyPairs)
         _services = ServiceHubInternalImpl(
