@@ -8,6 +8,7 @@ import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.cordapp.Cordapp
 import net.corda.core.cordapp.CordappContext
 import net.corda.core.internal.cordapp.CordappConfigProvider
+import net.corda.core.internal.cordapp.TypesafeCordappConfig
 import net.corda.core.node.services.AttachmentId
 import net.corda.core.serialization.SingletonSerializeAsToken
 import java.net.URL
@@ -71,7 +72,7 @@ open class CordappProviderImpl(
                     cordapp,
                     getCordappAttachmentId(cordapp),
                     cordappLoader.appClassLoader,
-                    cordappConfigProvider.getConfigByName(cordapp.name)
+                    TypesafeCordappConfig(cordappConfigProvider.getConfigByName(cordapp.name))
             )
         })
     }
