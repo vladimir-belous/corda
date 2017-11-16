@@ -19,6 +19,7 @@ import net.corda.nodeapi.internal.serialization.attachmentsClassLoaderEnabledPro
 import net.corda.nodeapi.internal.serialization.withTokenContext
 import net.corda.testing.*
 import net.corda.testing.node.MockAttachmentStorage
+import net.corda.testing.node.MockCordappConfigProvider
 import net.corda.testing.node.MockServices
 import org.apache.commons.io.IOUtils
 import org.junit.Assert.*
@@ -56,7 +57,7 @@ class AttachmentsClassLoaderTests {
 
     class DummyServiceHub : MockServices() {
         override val cordappProvider: CordappProviderImpl
-                = CordappProviderImpl(CordappLoader.createDevMode(listOf(ISOLATED_CONTRACTS_JAR_PATH)), attachments)
+                = CordappProviderImpl(CordappLoader.createDevMode(listOf(ISOLATED_CONTRACTS_JAR_PATH)), MockCordappConfigProvider(), attachments)
         private val cordapp get() = cordappProvider.cordapps.first()
         val attachmentId get() = cordappProvider.getCordappAttachmentId(cordapp)!!
         val appContext get() = cordappProvider.getAppContext(cordapp)

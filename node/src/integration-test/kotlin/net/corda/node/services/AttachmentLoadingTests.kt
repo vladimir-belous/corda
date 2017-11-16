@@ -23,6 +23,7 @@ import net.corda.testing.DUMMY_NOTARY
 import net.corda.testing.driver.DriverDSLExposedInterface
 import net.corda.testing.driver.NodeHandle
 import net.corda.testing.driver.driver
+import net.corda.testing.node.MockCordappConfigProvider
 import net.corda.testing.node.MockServices
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -33,7 +34,7 @@ import kotlin.test.assertFailsWith
 
 class AttachmentLoadingTests {
     private class Services : MockServices() {
-        private val provider = CordappProviderImpl(CordappLoader.createDevMode(listOf(isolatedJAR)), attachments)
+        private val provider = CordappProviderImpl(CordappLoader.createDevMode(listOf(isolatedJAR)), MockCordappConfigProvider(), attachments)
         private val cordapp get() = provider.cordapps.first()
         val attachmentId get() = provider.getCordappAttachmentId(cordapp)!!
         val appContext get() = provider.getAppContext(cordapp)
