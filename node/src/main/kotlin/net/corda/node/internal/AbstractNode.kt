@@ -65,6 +65,7 @@ import org.slf4j.Logger
 import rx.Observable
 import rx.subjects.PublishSubject
 import java.io.IOException
+import java.io.NotSerializableException
 import java.lang.reflect.InvocationTargetException
 import java.security.KeyPair
 import java.security.KeyStoreException
@@ -601,8 +602,10 @@ abstract class AbstractNode(val configuration: NodeConfiguration,
         networkParameters = if (configuration.devMode) {
             try { // TODO It is enabled only in dev mode, because of Cordformation networkParameters generation.
                 file.readAll().deserialize<NetworkParameters>()
-            } catch (e: ClassCastException) {
-                file.readAll().deserialize<SignedData<NetworkParameters>>().verified()
+            } catch (e: Exception) {
+                if(e is ClassCastException || e is NotSerializableException)
+                    file.readAll().deserialize<SignedData<NetworkParameters>>().verified()
+                else throw e
             }
         } else {
             file.readAll().deserialize<SignedData<NetworkParameters>>().verified()
