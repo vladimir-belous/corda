@@ -8,6 +8,7 @@ import net.corda.core.crypto.SecureHash
 import net.corda.core.node.services.AttachmentId
 import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.serialization.SingletonSerializeAsToken
+import net.corda.core.utilities.loggerFor
 import java.net.URL
 import java.nio.file.FileAlreadyExistsException
 
@@ -15,6 +16,11 @@ import java.nio.file.FileAlreadyExistsException
  * Cordapp provider and store. For querying CorDapps for their attachment and vice versa.
  */
 open class CordappProviderImpl(private val cordappLoader: CordappLoader, attachmentStorage: AttachmentStorage) : SingletonSerializeAsToken(), CordappProviderInternal {
+
+    companion object {
+        private val log = loggerFor<CordappProviderImpl>()
+    }
+
     override fun getAppContext(): CordappContext {
         // TODO: Use better supported APIs in Java 9
         Exception().stackTrace.forEach { stackFrame ->
@@ -50,7 +56,8 @@ open class CordappProviderImpl(private val cordappLoader: CordappLoader, attachm
             val attachmentId = try {
                 attachmentStorage.importAttachment(it.openStream())
             } catch (exception: FileAlreadyExistsException) {
-                // We don't care if a cordapp has already been installed into the vault.
+                // We don't care if a cordapp has already been installed into the vault, but let's warn anyway
+                log.warn("Attempted duplicate store of cordapp: ${exception.message}")
                 AttachmentId.parse(exception.message!!)
             }
             attachmentId

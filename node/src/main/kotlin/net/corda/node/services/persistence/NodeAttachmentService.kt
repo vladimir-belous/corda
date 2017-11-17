@@ -33,6 +33,29 @@ import javax.persistence.*
 @ThreadSafe
 class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, SingletonSerializeAsToken() {
 
+    companion object {
+        private val log = loggerFor<NodeAttachmentService>()
+
+        // Just iterate over the entries with verification enabled: should be good enough to catch mistakes.
+        // Note that JarInputStream won't throw any kind of error at all if the file stream is in fact not
+        // a ZIP! It'll just pretend it's an empty archive, which is kind of stupid but that's how it works.
+        // So we have to check to ensure we found at least one item.
+        private fun checkIsAValidJAR(stream: InputStream) {
+            val jar = JarInputStream(stream, true)
+            var count = 0
+            while (true) {
+                val cursor = jar.nextJarEntry ?: break
+                val entryPath = Paths.get(cursor.name)
+                // Security check to stop zips trying to escape their rightful place.
+                require(!entryPath.isAbsolute) { "Path $entryPath is absolute" }
+                require(entryPath.normalize() == entryPath) { "Path $entryPath is not normalised" }
+                require(!('\\' in cursor.name || cursor.name == "." || cursor.name == "..")) { "Bad character in $entryPath" }
+                count++
+            }
+            require(count > 0) { "Stream is either empty or not a JAR/ZIP" }
+        }
+    }
+
     @Entity
     @Table(name = "${NODE_DATABASE_PREFIX}attachments",
             indexes = arrayOf(Index(name = "att_id_idx", columnList = "att_id")))
@@ -170,30 +193,7 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
         return import(jar, uploader, filename)
     }
 
-    companion object {
-        private val log = loggerFor<NodeAttachmentService>()
-
-        private fun checkIsAValidJAR(stream: InputStream) {
-            // Just iterate over the entries with verification enabled: should be good enough to catch mistakes.
-            // Note that JarInputStream won't throw any kind of error at all if the file stream is in fact not
-            // a ZIP! It'll just pretend it's an empty archive, which is kind of stupid but that's how it works.
-            // So we have to check to ensure we found at least one item.
-            val jar = JarInputStream(stream, true)
-            var count = 0
-            while (true) {
-                val cursor = jar.nextJarEntry ?: break
-                val entryPath = Paths.get(cursor.name)
-                // Security check to stop zips trying to escape their rightful place.
-                require(!entryPath.isAbsolute) { "Path $entryPath is absolute" }
-                require(entryPath.normalize() == entryPath) { "Path $entryPath is not normalised" }
-                require(!('\\' in cursor.name || cursor.name == "." || cursor.name == "..")) { "Bad character in $entryPath" }
-                count++
-            }
-            require(count > 0) { "Stream is either empty or not a JAR/ZIP" }
-        }
-    }
-
-    override fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray> {
+    fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray> {
         val hs = HashingInputStream(Hashing.sha256(), jar)
         val bytes = hs.readBytes()
         checkIsAValidJAR(ByteArrayInputStream(bytes))
