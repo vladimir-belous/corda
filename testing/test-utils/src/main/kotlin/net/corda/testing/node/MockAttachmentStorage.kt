@@ -56,9 +56,8 @@ class MockAttachmentStorage : AttachmentStorage, SingletonSerializeAsToken() {
 
     override fun hasAttachment(attachmentId: AttachmentId) = files.containsKey(attachmentId)
 
-    override fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray> {
+    fun getAttachmentIdAndBytes(jar: InputStream): Pair<AttachmentId, ByteArray> {
         val bytes = getBytes(jar)
         return Pair(bytes.sha256(), bytes)
     }
-
 }
