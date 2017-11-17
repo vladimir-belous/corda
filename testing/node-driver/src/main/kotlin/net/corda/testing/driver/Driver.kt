@@ -879,8 +879,10 @@ class DriverDSL(
                     }
             )
             return nodeAndThreadFuture.flatMap { (node, thread) ->
-                establishRpc(configuration, openFuture()).map { rpc ->
+                establishRpc(configuration, openFuture()).flatMap { rpc ->
+                    allNodesConnected(rpc).map {
                         NodeHandle.InProcess(rpc.nodeInfo(), rpc, configuration, webAddress, node, thread, onNodeExit)
+                    }
                 }
             }
         } else {
@@ -899,7 +901,6 @@ class DriverDSL(
                     if (process.isAlive) null else process
                 }
                 establishRpc(configuration, processDeathFuture).flatMap { rpc ->
-                    val v = rpc.networkMapSnapshot()
                     // Check for all nodes to have all other nodes in background in case RPC is failing over:
                     val networkMapFuture = executorService.fork { allNodesConnected(rpc) }.flatMap { it }
                     firstOf(processDeathFuture, networkMapFuture) {
