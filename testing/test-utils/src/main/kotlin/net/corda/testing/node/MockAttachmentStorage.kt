@@ -60,4 +60,14 @@ class MockAttachmentStorage : AttachmentStorage, SingletonSerializeAsToken() {
         val bytes = getBytes(jar)
         return Pair(bytes.sha256(), bytes)
     }
+
+    override fun importOrGetAttachment(jar: InputStream): AttachmentId {
+        try {
+            return importAttachment(jar)
+        }
+        catch (faee: java.nio.file.FileAlreadyExistsException) {
+            return AttachmentId.parse(faee.message!!)
+        }
+    }
+
 }

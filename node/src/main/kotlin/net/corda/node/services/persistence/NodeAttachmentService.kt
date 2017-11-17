@@ -231,6 +231,15 @@ class NodeAttachmentService(metrics: MetricRegistry) : AttachmentStorage, Single
         }
     }
 
+    override fun importOrGetAttachment(jar: InputStream): AttachmentId {
+        try {
+            return importAttachment(jar)
+        }
+        catch (faee: java.nio.file.FileAlreadyExistsException) {
+            return AttachmentId.parse(faee.message!!)
+        }
+    }
+
     override fun queryAttachments(criteria: AttachmentQueryCriteria, sorting: AttachmentSort?): List<AttachmentId> {
         log.info("Attachment query criteria: $criteria, sorting: $sorting")
 
