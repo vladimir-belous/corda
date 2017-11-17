@@ -1,19 +1,16 @@
 package net.corda.node.internal.cordapp
 
 import com.google.common.collect.HashBiMap
-import com.typesafe.config.Config
 import net.corda.core.contracts.ContractClassName
 import net.corda.core.crypto.SecureHash
 import net.corda.core.node.services.AttachmentStorage
 import net.corda.core.cordapp.Cordapp
 import net.corda.core.cordapp.CordappContext
 import net.corda.core.internal.cordapp.CordappConfigProvider
-import net.corda.core.internal.cordapp.TypesafeCordappConfig
 import net.corda.core.node.services.AttachmentId
 import net.corda.core.serialization.SingletonSerializeAsToken
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentMap
 
 /**
  * Cordapp provider and store. For querying CorDapps for their attachment and vice versa.
