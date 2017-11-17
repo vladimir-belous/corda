@@ -332,6 +332,7 @@ fun <A> driver(
         waitForAllNodesToFinish: Boolean = defaultParameters.waitForNodesToFinish,
         notarySpecs: List<NotarySpec> = defaultParameters.notarySpecs,
         extraCordappPackagesToScan: List<String> = defaultParameters.extraCordappPackagesToScan,
+        globalOverride: Map<String, Any?> = defaultParameters.globalOverride,
         dsl: DriverDSLExposedInterface.() -> A
 ): A {
     return genericDriver(
@@ -345,7 +346,8 @@ fun <A> driver(
                     startNodesInProcess = startNodesInProcess,
                     waitForNodesToFinish = waitForAllNodesToFinish,
                     notarySpecs = notarySpecs,
-                    extraCordappPackagesToScan = extraCordappPackagesToScan
+                    extraCordappPackagesToScan = extraCordappPackagesToScan,
+                    globalOverride = globalOverride
             ),
             coerce = { it },
             dsl = dsl,
@@ -380,7 +382,8 @@ data class DriverParameters(
         val startNodesInProcess: Boolean = false,
         val waitForNodesToFinish: Boolean = false,
         val notarySpecs: List<NotarySpec> = listOf(NotarySpec(DUMMY_NOTARY.name)),
-        val extraCordappPackagesToScan: List<String> = emptyList()
+        val extraCordappPackagesToScan: List<String> = emptyList(),
+        val globalOverride: Map<String, Any?> = emptyMap()
 ) {
     fun setIsDebug(isDebug: Boolean) = copy(isDebug = isDebug)
     fun setDriverDirectory(driverDirectory: Path) = copy(driverDirectory = driverDirectory)
@@ -446,7 +449,8 @@ fun <DI : DriverDSLExposedInterface, D : DriverDSLInternalInterface, A> genericD
         notarySpecs: List<NotarySpec>,
         extraCordappPackagesToScan: List<String> = defaultParameters.extraCordappPackagesToScan,
         driverDslWrapper: (DriverDSL) -> D,
-        coerce: (D) -> DI, dsl: DI.() -> A
+        coerce: (D) -> DI, dsl: DI.() -> A,
+        globalOverride: Map<String, Any?> = defaultParameters.globalOverride
 ): A {
     val serializationEnv = setGlobalSerialization(initialiseSerialization)
     val driverDsl = driverDslWrapper(
@@ -460,7 +464,8 @@ fun <DI : DriverDSLExposedInterface, D : DriverDSLInternalInterface, A> genericD
                     startNodesInProcess = startNodesInProcess,
                     waitForNodesToFinish = waitForNodesToFinish,
                     extraCordappPackagesToScan = extraCordappPackagesToScan,
-                    notarySpecs = notarySpecs
+                    notarySpecs = notarySpecs,
+                    globalOverride = globalOverride
             )
     )
     val shutdownHook = addShutdownHook(driverDsl::shutdown)
@@ -566,7 +571,8 @@ class DriverDSL(
         val startNodesInProcess: Boolean,
         val waitForNodesToFinish: Boolean,
         extraCordappPackagesToScan: List<String>,
-        val notarySpecs: List<NotarySpec>
+        val notarySpecs: List<NotarySpec>,
+        val globalOverride: Map<String, Any?>
 ) : DriverDSLInternalInterface {
     private var _executorService: ScheduledExecutorService? = null
     val executorService get() = _executorService!!
@@ -655,7 +661,7 @@ class DriverDSL(
                         "useTestClock" to useTestClock,
                         "rpcUsers" to if (users.isEmpty()) defaultRpcUserList else users.map { it.toConfig().root().unwrapped() },
                         "verifierType" to verifierType.name
-                ) + customOverrides
+                ) + globalOverride + customOverrides
         )
         return startNodeInternal(config, webAddress, startInSameProcess, maximumHeapSize)
     }
@@ -853,9 +859,13 @@ class DriverDSL(
                                   maximumHeapSize: String): CordaFuture<NodeHandle> {
         val configuration = config.parseAsNodeConfiguration()
         val baseDirectory = configuration.baseDirectory.createDirectories()
-        nodeInfoFilesCopier.addConfig(baseDirectory)
+        // Distribute node info file using file copier when network map service URL (compatibilityZoneURL) is null.
+        // TODO: need to implement the same in cordformation?
+        val nodeInfoFilesCopier = if (configuration.compatibilityZoneURL == null) nodeInfoFilesCopier else null
+
+        nodeInfoFilesCopier?.addConfig(baseDirectory)
         val onNodeExit: () -> Unit = {
-            nodeInfoFilesCopier.removeConfig(baseDirectory)
+            nodeInfoFilesCopier?.removeConfig(baseDirectory)
             countObservables.remove(configuration.myLegalName)
         }
         if (startInProcess ?: startNodesInProcess) {
@@ -869,10 +879,8 @@ class DriverDSL(
                     }
             )
             return nodeAndThreadFuture.flatMap { (node, thread) ->
-                establishRpc(configuration, openFuture()).flatMap { rpc ->
-                    allNodesConnected(rpc).map {
+                establishRpc(configuration, openFuture()).map { rpc ->
                         NodeHandle.InProcess(rpc.nodeInfo(), rpc, configuration, webAddress, node, thread, onNodeExit)
-                    }
                 }
             }
         } else {
@@ -891,6 +899,7 @@ class DriverDSL(
                     if (process.isAlive) null else process
                 }
                 establishRpc(configuration, processDeathFuture).flatMap { rpc ->
+                    val v = rpc.networkMapSnapshot()
                     // Check for all nodes to have all other nodes in background in case RPC is failing over:
                     val networkMapFuture = executorService.fork { allNodesConnected(rpc) }.flatMap { it }
                     firstOf(processDeathFuture, networkMapFuture) {

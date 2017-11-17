@@ -235,6 +235,7 @@ fun <A> rpcDriver(
         waitForNodesToFinish: Boolean = false,
         extraCordappPackagesToScan: List<String> = emptyList(),
         notarySpecs: List<NotarySpec> = emptyList(),
+        globalOverride: Map<String, Any?> = emptyMap(),
         externalTrace: Trace? = null,
         dsl: RPCDriverExposedDSLInterface.() -> A
 ) = genericDriver(
@@ -249,7 +250,8 @@ fun <A> rpcDriver(
                         startNodesInProcess = startNodesInProcess,
                         waitForNodesToFinish = waitForNodesToFinish,
                         extraCordappPackagesToScan = extraCordappPackagesToScan,
-                        notarySpecs = notarySpecs
+                        notarySpecs = notarySpecs,
+                        globalOverride = globalOverride
                 ), externalTrace
         ),
         coerce = { it },
